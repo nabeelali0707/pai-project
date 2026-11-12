@@ -1,0 +1,10 @@
+{
+  "symbol": "AAPL",
+  "source": "Yahoo Finance via yfinance",
+  "start": "2015-01-01",
+  "end": "2024-01-31",
+  "rows": 2284,
+  "first_date": "2015-01-02",
+  "last_date": "2024-01-30",
+  "downloaded_at": "2026-11-12T06:42:28+00:00"
+}
