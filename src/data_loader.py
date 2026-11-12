@@ -138,7 +138,7 @@ class DataLoader:
             df.columns = df.columns.get_level_values(0)
         df.columns = [str(c) for c in df.columns]
         keep = [c for c in PRICE_COLUMNS + ["Adj Close"] if c in df.columns]
-        df = df[keep]
+        df = df[keep].round(6)  # same precision as the cache, so online == offline results
         df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
         df.index.name = "Date"
         return df

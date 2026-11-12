@@ -1,0 +1,9 @@
+{
+  "engine": "vader+finance",
+  "headlines": 14399,
+  "days": 2845,
+  "mean_compound": 0.2668,
+  "positive": 9364,
+  "neutral": 1712,
+  "negative": 3323
+}

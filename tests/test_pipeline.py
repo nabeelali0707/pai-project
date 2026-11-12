@@ -94,6 +94,14 @@ def test_sentiment_polarity(headlines, use_vader):
     assert set(daily.columns) >= {"sentiment_mean", "positive_ratio", "negative_ratio"}
 
 
+def test_filter_relevant(headlines):
+    extra = pd.concat([headlines, pd.DataFrame({"date": [pd.Timestamp("2020-01-08")],
+                                                "headline": ["Snap shares rose after an upgrade"]})])
+    sa = SentimentAnalyzer(extra.reset_index(drop=True))
+    kept = sa.filter_relevant(["apple", "iphone"])
+    assert len(kept) == 4 and not kept["headline"].str.contains("Snap").any()
+
+
 def test_finance_lexicon_negation():
     sa = SentimentAnalyzer(use_vader=False)
     assert sa.score_text("shares did not surge")["compound"] < 0

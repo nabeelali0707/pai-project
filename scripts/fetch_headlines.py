@@ -13,6 +13,8 @@ item (the headline-like opening), de-duplicates, and writes a small gzip CSV to
 Usage:
     python scripts/fetch_headlines.py AAPL                 # download + trim
     python scripts/fetch_headlines.py AAPL --raw file.csv  # trim an existing download
+    python scripts/fetch_headlines.py AAPL --raw file.csv --first-pass
+        # keep only the first chronological sweep (how the committed cache was built)
 """
 
 from __future__ import annotations
@@ -56,10 +58,29 @@ def shorten(text: str, limit: int = MAX_CHARS) -> str:
     return cut
 
 
-def trim(raw_path: str, symbol: str) -> str:
+def first_pass(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep rows until the dates restart from the beginning of the period.
+
+    The raw files are made of several roughly chronological sweeps over
+    2015-2024. The first sweep alone already covers the full period (~14k AAPL
+    items) and is only the first ~25% of the file, which matters on slow
+    connections. A restart is a row dated within 90 days of the very first row
+    after the sweep has already advanced more than three years.
+    """
+    dates = pd.to_datetime(df["date"], errors="coerce").ffill()
+    start = dates.iloc[0]
+    advanced = dates.cummax().shift(fill_value=start) > start + pd.Timedelta(days=3 * 365)
+    restarted = advanced & (dates < start + pd.Timedelta(days=90))
+    return df.loc[: restarted.idxmax() - 1] if restarted.any() else df
+
+
+def trim(raw_path: str, symbol: str, only_first_pass: bool = False) -> str:
     """Reduce the raw file to (date, headline) and save it to the cache."""
-    df = pd.read_csv(raw_path, usecols=["headline", "date"])
+    # The python engine tolerates a truncated last line from a partial download.
+    df = pd.read_csv(raw_path, usecols=["headline", "date"], engine="python", on_bad_lines="skip")
     rows_in = len(df)
+    if only_first_pass:
+        df = first_pass(df)
     df = df.dropna(subset=["headline", "date"])
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     df = df.dropna(subset=["date"])
@@ -79,14 +100,16 @@ def trim(raw_path: str, symbol: str) -> str:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("symbol", nargs="?", default="AAPL")
-    parser.add_argument("--raw", help="path to an already downloaded raw CSV")
+    parser.add_argument("--raw", help="path to an already downloaded (possibly partial) raw CSV")
+    parser.add_argument("--first-pass", action="store_true",
+                        help="keep only the first chronological sweep of the file (what the committed cache uses)")
     args = parser.parse_args(argv)
     symbol = args.symbol.upper()
     if symbol not in SUPPORTED and not args.raw:
         print(f"{symbol} is not in the dataset. Choose one of: {sorted(SUPPORTED)}")
         return 1
     raw = args.raw or download(symbol)
-    trim(raw, symbol)
+    trim(raw, symbol, only_first_pass=args.first_pass)
     return 0
 
 

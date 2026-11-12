@@ -64,6 +64,18 @@ _EXCHANGE_TAG_RE = re.compile(r"\(\s*(?:nasdaq|nyse|amex|otc|nysearca|otcmkts)\s
 _NON_TEXT_RE = re.compile(r"[^a-z0-9$%.,!?'\-\s]")
 _SPACE_RE = re.compile(r"\s+")
 
+RELEVANCE_KEYWORDS: dict[str, list[str]] = {
+    "AAPL": ["apple", "aapl", "iphone", "ipad", "mac", "macbook", "ios", "app store",
+             "tim cook", "airpods", "apple watch", "vision pro"],
+    "MSFT": ["microsoft", "msft", "windows", "azure", "xbox", "satya nadella", "openai"],
+    "AMZN": ["amazon", "amzn", "aws", "prime", "alexa", "jeff bezos", "andy jassy"],
+    "GOOG": ["google", "goog", "googl", "alphabet", "youtube", "android", "sundar pichai"],
+    "META": ["meta", "facebook", "instagram", "whatsapp", "zuckerberg", "fb"],
+    "TSLA": ["tesla", "tsla", "elon musk", "model 3", "model y", "cybertruck"],
+    "NVDA": ["nvidia", "nvda", "geforce", "jensen huang", "gpu", "gpus"],
+    "BABA": ["alibaba", "baba", "taobao", "alipay", "jack ma"],
+}
+
 POSITIVE_THRESHOLD = 0.05
 NEGATIVE_THRESHOLD = -0.05
 
@@ -112,6 +124,21 @@ class SentimentAnalyzer:
         text = _EXCHANGE_TAG_RE.sub(" ", text)
         text = _NON_TEXT_RE.sub(" ", text)
         return _SPACE_RE.sub(" ", text).strip()
+
+    def filter_relevant(self, keywords: list[str]) -> pd.DataFrame:
+        """Keep only headlines that mention at least one keyword (whole word, any case).
+
+        News feeds tag an article with every ticker it touches, so many items
+        filed under one stock are really about another company.
+        """
+        if self.headlines is None:
+            raise ValueError("No headlines loaded.")
+        pattern = re.compile(r"\b(?:" + "|".join(map(re.escape, keywords)) + r")\b", re.I)
+        is_relevant = lambda text: bool(pattern.search(str(text)))  # noqa: E731 (lab 04: lambda)
+        keep = list(filter(lambda pair: is_relevant(pair[1]), enumerate(self.headlines["headline"])))
+        self.headlines = self.headlines.iloc[[i for i, _ in keep]].reset_index(drop=True)
+        self.sentiment_scores = self.daily_sentiment = None
+        return self.headlines
 
     # --------------------------------------------------------------- scoring
     def score_text(self, text: str) -> dict[str, float]:

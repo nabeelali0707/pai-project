@@ -115,10 +115,12 @@ class ModelEvaluator:
             ax1.plot(x, np.asarray(baseline, dtype=float), label=baseline_label,
                      color="#f59e0b", linewidth=1.0, alpha=0.8, linestyle="--")
         ax1.set_ylabel("Price (USD)")
-        ax1.set_title(f"Next-day close: actual vs predicted (MAE ${self.mae():.2f}, "
-                      f"RMSE ${self.rmse():.2f}, R² {self.r2():.3f})")
+        # "\$" stops matplotlib from treating the dollar signs as maths markup
+        ax1.set_title(f"Next-day close: actual vs predicted (MAE \\${self.mae():.2f}, "
+                      f"RMSE \\${self.rmse():.2f}, R² {self.r2():.3f})")
         ax1.legend(loc="upper left")
-        ax2.bar(x, self.errors, color=np.where(self.errors >= 0, "#16a34a", "#dc2626"), width=1.0)
+        ax2.vlines(x, 0, self.errors, colors=np.where(self.errors >= 0, "#16a34a", "#dc2626"),
+                   linewidth=1.4 if self.actual.size <= 120 else 0.8)
         ax2.axhline(0, color="#111827", linewidth=0.8)
         ax2.set_ylabel("Error (USD)")
         ax2.set_xlabel("Date")

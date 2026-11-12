@@ -19,7 +19,7 @@ from src.evaluator import FIGURE_DIR, ModelEvaluator
 from src.features import FeatureBuilder, PRICE_FEATURES, SENTIMENT_FEATURES, TARGET_RETURN
 from src.predictor import MODEL_FACTORIES, ComparisonResult, StockPredictor
 from src.preprocessor import Preprocessor
-from src.sentiment import SentimentAnalyzer
+from src.sentiment import RELEVANCE_KEYWORDS, SentimentAnalyzer
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(ROOT, "outputs")
@@ -44,12 +44,13 @@ class App:
     """
 
     def __init__(self, symbol: str = "AAPL", offline: bool = False, show_plots: bool = False,
-                 test_size: float = 0.2):
+                 test_size: float = 0.2, relevant_only: bool = False):
         self.loader = DataLoader(symbol)
         self.symbol = self.loader.stock_symbol
         self.offline = offline
         self.show_plots = show_plots
         self.test_size = test_size
+        self.relevant_only = relevant_only
 
         self.prices: pd.DataFrame | None = None
         self.clean_prices: pd.DataFrame | None = None
@@ -118,7 +119,11 @@ class App:
             return
 
         self.analyzer = SentimentAnalyzer(self.headlines)
-        print(f"   Scoring {len(self.headlines)} headlines with {self.analyzer.engine} ...")
+        if self.relevant_only and self.symbol in RELEVANCE_KEYWORDS:
+            kept = self.analyzer.filter_relevant(RELEVANCE_KEYWORDS[self.symbol])
+            print(f"   Relevance filter: kept {len(kept)} of {len(self.headlines)} headlines "
+                  f"that mention {self.symbol} keywords")
+        print(f"   Scoring {len(self.analyzer.headlines)} headlines with {self.analyzer.engine} ...")
         scores = self.analyzer.analyze()
         self.daily_sentiment = self.analyzer.aggregate_by_date()
         self.daily_sentiment.to_csv(self.sentiment_cache_path, float_format="%.5f")
@@ -201,12 +206,19 @@ class App:
             effect = res.sentiment_effect(BASELINE, ENHANCED)
             print("\n   Effect of adding sentiment (RMSE change < 0 means sentiment helped):")
             print(effect.round(4).to_string())
-            helped = (effect["RMSE_change_%"] < 0).sum()
-            print(f"\n   Verdict: sentiment lowered RMSE for {helped} of {len(effect)} models; "
-                  f"mean RMSE change {effect['RMSE_change_%'].mean():+.2f}%.")
-            beats_naive = best_enh["RMSE"] < naive["RMSE"]
-            print(f"   The best enhanced model {'beats' if beats_naive else 'does NOT beat'} "
-                  f"the naive baseline on RMSE.")
+            helped = int((effect["RMSE_change_%"] < 0).sum())
+            dir_up = int((effect["DirAcc_enhanced"] > effect["DirAcc_baseline"]).sum())
+            dir_gain = (effect["DirAcc_enhanced"] - effect["DirAcc_baseline"]).mean() * 100
+            # ~1 standard error of an accuracy near 50% on this many test days
+            noise = 100 * 0.5 / len(res.actual) ** 0.5
+            print("\n   Verdict:")
+            print(f"   - RMSE: sentiment lowered it for {helped} of {len(effect)} models "
+                  f"(mean change {effect['RMSE_change_%'].mean():+.2f}%).")
+            print(f"   - Direction: sentiment improved it for {dir_up} of {len(effect)} models "
+                  f"(mean {dir_gain:+.1f} points; one standard error is about {noise:.1f} points).")
+            margin = naive["RMSE"] - best_enh["RMSE"]
+            print(f"   - The best enhanced model {'beats' if margin > 0 else 'does NOT beat'} the naive "
+                  f"'no change' forecast on RMSE (margin ${margin:+.4f}).")
 
         key = (best["model"], best["feature_set"])
         model = res.models[key]
@@ -311,13 +323,16 @@ def parse_args(argv=None):
     parser.add_argument("--auto", action="store_true", help="run every step once without the menu")
     parser.add_argument("--show", action="store_true", help="open chart windows as well as saving PNGs")
     parser.add_argument("--test-size", type=float, default=0.2, help="share of days used for testing")
+    parser.add_argument("--relevant-only", action="store_true",
+                        help="score only headlines that mention the company (keyword filter)")
     return parser.parse_args(argv)
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
     os.makedirs(FIGURE_DIR, exist_ok=True)
-    app = App(args.symbol, offline=args.offline, show_plots=args.show, test_size=args.test_size)
+    app = App(args.symbol, offline=args.offline, show_plots=args.show, test_size=args.test_size,
+              relevant_only=args.relevant_only)
     try:
         if args.auto:
             app.run_all()
