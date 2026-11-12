@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Generated output (figures, reports) - regenerate with `python main.py --auto`
+outputs/
+
+# Raw downloads (large). The trimmed cache in data/cache/ IS committed.
+data/raw/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Original proposal draft (kept locally, see docs/)
+oxJIvt.md
