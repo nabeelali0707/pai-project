@@ -17,6 +17,9 @@ improve accuracy compared with a price-only model.
 
 > Educational project only. Nothing here is investment advice.
 
+**Status:** the full pipeline works. The remaining tasks are split into two phases in
+[docs/REMAINING_WORK.md](docs/REMAINING_WORK.md).
+
 ---
 
 ## Quick start
