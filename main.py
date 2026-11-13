@@ -15,11 +15,11 @@ import sys
 import pandas as pd
 
 from src.data_loader import DataLoader
-from src.evaluator import FIGURE_DIR, ModelEvaluator
+from src.evaluator import FIGURE_DIR, ModelEvaluator, binomial_test_direction, diebold_mariano_test
 from src.features import FeatureBuilder, PRICE_FEATURES, SENTIMENT_FEATURES, TARGET_RETURN
-from src.predictor import MODEL_FACTORIES, ComparisonResult, StockPredictor
+from src.predictor import MODEL_FACTORIES, ComparisonResult, StockPredictor, tune_hyperparameters
 from src.preprocessor import Preprocessor
-from src.sentiment import RELEVANCE_KEYWORDS, SentimentAnalyzer
+from src.sentiment import RELEVANCE_KEYWORDS, SentimentAnalyzer, run_sentiment_ablation
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(ROOT, "outputs")
@@ -61,6 +61,7 @@ class App:
         self.train_df: pd.DataFrame | None = None
         self.test_df: pd.DataFrame | None = None
         self.comparison: ComparisonResult | None = None
+        self.walk_forward_result: ComparisonResult | None = None
         self.sentiment_attempted = False
 
     @property
@@ -180,7 +181,14 @@ class App:
         print(f"   Models: {', '.join(MODEL_FACTORIES)}  x  {len(feature_sets)} feature sets\n")
 
         self.comparison = StockPredictor.compare_models(self.train_df, self.test_df, feature_sets)
+        print("   --- Single Train/Test Split Results ---")
         print(self.comparison.results.round(4).to_string(index=False))
+
+        print("\n   --- Walk-Forward Validation (TimeSeriesSplit, 5 rolling folds) ---")
+        self.walk_forward_result = StockPredictor.compare_models(
+            rows, feature_sets=feature_sets, walk_forward=True, n_splits=5
+        )
+        print(self.walk_forward_result.formatted_table().to_string(index=False))
         self._save_results()
 
     # -------------------------------------------------------- 5. evaluate
@@ -219,6 +227,32 @@ class App:
             margin = naive["RMSE"] - best_enh["RMSE"]
             print(f"   - The best enhanced model {'beats' if margin > 0 else 'does NOT beat'} the naive "
                   f"'no change' forecast on RMSE (margin ${margin:+.4f}).")
+
+            # Statistical significance tests (Phase 2 Task 2.2)
+            prev_close = self.test_df["Close"].to_numpy(dtype=float)
+            base_key = (best_base["model"], BASELINE)
+            enh_key = (best_enh["model"], ENHANCED)
+            ev_base = ModelEvaluator(res.actual, res.predictions[base_key])
+            ev_enh = ModelEvaluator(res.actual, res.predictions[enh_key])
+            bin_base = ev_base.direction_test(prev_close)
+            bin_enh = ev_enh.direction_test(prev_close)
+            dm_sq = diebold_mariano_test(ev_base.errors, ev_enh.errors, loss="squared")
+            dm_abs = diebold_mariano_test(ev_base.errors, ev_enh.errors, loss="absolute")
+
+            print("\n   Statistical significance tests (Phase 2):")
+            print(f"   - Direction accuracy vs 50% coin flip (Binomial test):")
+            print(f"       Baseline ({best_base['model']}): {bin_base['accuracy']:.1%} "
+                  f"({bin_base['k']}/{bin_base['n']} days, p-value = {bin_base['p_value']:.4f})")
+            print(f"       Enhanced ({best_enh['model']}): {bin_enh['accuracy']:.1%} "
+                  f"({bin_enh['k']}/{bin_enh['n']} days, p-value = {bin_enh['p_value']:.4f})")
+            sig_dir_str = "Statistically significant at alpha=0.05" if bin_enh['significant_05'] else "Not statistically significant (p >= 0.05; cannot reject 50% coin-flip null)"
+            print(f"       Verdict: {sig_dir_str}")
+
+            print(f"   - Daily forecast errors (Diebold-Mariano paired test, baseline vs enhanced):")
+            print(f"       Squared loss (MSE): DM stat = {dm_sq['stat']:+.3f}, p-value = {dm_sq['p_value']:.4f}")
+            print(f"       Absolute loss (MAE): DM stat = {dm_abs['stat']:+.3f}, p-value = {dm_abs['p_value']:.4f}")
+            sig_err_str = "Statistically significant difference (p < 0.05)" if dm_sq['significant_05'] else "No statistically significant difference in daily error (p >= 0.05)"
+            print(f"       Verdict: {sig_err_str}")
 
         key = (best["model"], best["feature_set"])
         model = res.models[key]
@@ -264,6 +298,46 @@ class App:
         print(f"\n   {DISCLAIMER}")
 
     # ---------------------------------------------------------- helpers
+    def step_walk_forward(self, n_splits: int = 5) -> None:
+        if self.builder is None or (not self.builder.sentiment_available and not self.sentiment_attempted):
+            self.step_sentiment()
+        heading(f"Walk-Forward Validation ({n_splits} folds TimeSeriesSplit)")
+        rows = self.builder.training_rows()
+        if self.builder.sentiment_available:
+            first_news = rows.index[rows["news_count"] > 0].min()
+            rows = rows[rows.index >= first_news]
+        feature_sets = {BASELINE: self.builder.feature_columns(False)}
+        if self.builder.sentiment_available:
+            feature_sets[ENHANCED] = self.builder.feature_columns(True)
+
+        wf_res = StockPredictor.compare_models(rows, feature_sets=feature_sets, walk_forward=True, n_splits=n_splits)
+        self.walk_forward_result = wf_res
+        print("   Walk-forward evaluation results (mean +/- std across 5 rolling folds):\n")
+        print(wf_res.formatted_table().to_string(index=False))
+
+    def step_ablation(self) -> None:
+        if self.clean_prices is None:
+            self.step_features()
+        heading("Sentiment Ablation (Plain VADER vs VADER + Finance Lexicon)")
+        if self.headlines is None:
+            print("   No headline data found to run ablation.")
+            return
+        ablation_df = run_sentiment_ablation(self.headlines, self.clean_prices, test_size=self.test_size)
+        print(ablation_df.to_string(index=False))
+
+    def step_tune(self) -> None:
+        if self.train_df is None:
+            self.step_train()
+        heading("Hyperparameter Tuning (TimeSeriesSplit on Training Set Only)")
+        cols = self.builder.feature_columns(self.builder.sentiment_available)
+        print("   Tuning Ridge, Random Forest, and Gradient Boosting on training data only...")
+        tuning_results = tune_hyperparameters(self.train_df, cols, verbose=True)
+        for m_name, info in tuning_results.items():
+            print(f"\n   Model: {m_name}")
+            print(f"     Search space:     {info['search_range']}")
+            print(f"     Best parameters:  {info['best_params']}")
+            print(f"     Validation RMSE:  ${info['val_rmse']:.4f}")
+
     def _print_figures(self, paths) -> None:
         paths = [p for p in paths if p]
         if paths:
@@ -295,14 +369,17 @@ class App:
             "4": ("Train and compare models", self.step_train),
             "5": ("View metrics and charts", self.step_evaluate),
             "6": ("Predict next-day closing price", self.step_predict),
-            "7": ("Run everything (1-6)", self.run_all),
+            "7": ("Run walk-forward validation (TimeSeriesSplit 5 folds)", self.step_walk_forward),
+            "8": ("Run sentiment ablation (Plain VADER vs Finance Lexicon)", self.step_ablation),
+            "9": ("Run hyperparameter tuning (training set only)", self.step_tune),
+            "10": ("Run everything (1-6)", self.run_all),
             "0": ("Exit", None),
         }
         while True:
             heading(f"Stock Price Prediction with Market Sentiment  |  {self.symbol}"
                     f"{'  |  offline' if self.offline else ''}")
             for key, (label, _) in options.items():
-                print(f"   {key}. {label}")
+                print(f"   {key:>2}. {label}")
             choice = input("\n   Choose an option: ").strip()
             if choice == "0":
                 print("   Goodbye.")
@@ -325,6 +402,9 @@ def parse_args(argv=None):
     parser.add_argument("--test-size", type=float, default=0.2, help="share of days used for testing")
     parser.add_argument("--relevant-only", action="store_true",
                         help="score only headlines that mention the company (keyword filter)")
+    parser.add_argument("--walk-forward", action="store_true", help="run 5-fold walk-forward validation and exit")
+    parser.add_argument("--ablation", action="store_true", help="run sentiment ablation comparison and exit")
+    parser.add_argument("--tune", action="store_true", help="run hyperparameter tuning on training data and exit")
     return parser.parse_args(argv)
 
 
@@ -334,7 +414,13 @@ def main(argv=None) -> int:
     app = App(args.symbol, offline=args.offline, show_plots=args.show, test_size=args.test_size,
               relevant_only=args.relevant_only)
     try:
-        if args.auto:
+        if args.ablation:
+            app.step_ablation()
+        elif args.tune:
+            app.step_tune()
+        elif args.walk_forward:
+            app.step_walk_forward()
+        elif args.auto:
             app.run_all()
         else:
             app.menu()

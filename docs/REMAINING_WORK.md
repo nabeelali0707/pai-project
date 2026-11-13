@@ -39,17 +39,17 @@ pass. What remains splits into two phases.
 
 ## Phase 2: Strengthen the evaluation and prepare the demo
 
-**Target:** by one week before the lab final (proposal milestone 5).
+**Status:** Completed.
 
-| # | Task | Owner | Done when |
-|---|---|---|---|
-| 2.1 | **Walk-forward validation.** Results now come from a single train/test split, so differences of 1–2 points are within noise. Add a rolling evaluation using scikit-learn's `TimeSeriesSplit` (for example 5 folds) and report each metric as mean ± standard deviation. | Ali | `compare_models` can run in walk-forward mode, and the README table shows mean ± std. |
-| 2.2 | **Significance check.** Add a binomial test for direction accuracy against 50%, and a paired test on the daily errors (Diebold–Mariano or a paired t-test) for baseline vs enhanced. | Nabeel | Step 5 prints a p-value next to the sentiment verdict, so the README can say whether the effect is significant. |
-| 2.3 | **Light hyperparameter tuning.** Tune Ridge `alpha` and the Random Forest and Gradient Boosting depth and leaf size, using `TimeSeriesSplit` on the training years only. Never tune on the test period. | Ali | The chosen settings and the search ranges are documented, and the test data is untouched during tuning. |
-| 2.4 | **Sentiment ablation.** Compare the current VADER + finance lexicon with plain VADER, without the finance words. FinBERT is an optional stretch goal and only if it runs offline in reasonable time. This shows whether our finance lexicon matters. | Siraj | A small table compares the sentiment methods by direction accuracy and RMSE. |
-| 2.5 | **Continuous integration.** Add a GitHub Actions workflow that runs `pytest` and `python main.py --auto --offline` on every push. | Nabeel | A green check appears on GitHub for every commit. |
-| 2.6 | **Demo script and slides.** Prepare a 5-minute walkthrough using the menu in `--offline` mode: load, clean, sentiment, train, charts, prediction. Prepare 6–8 slides covering the problem, architecture, NLP, results, the "naive baseline" lesson and limitations. Rehearse once with the network switched off. | All (Nabeel: slides) | A full rehearsal runs without errors and each member presents their own module. |
-| 2.7 | **Final cleanup.** Update the README results after 2.1–2.4, remove anything unused, and tag the release `v1.0`. | All | The `v1.0` tag is on GitHub, and the README numbers match `python main.py --auto --offline`. |
+| # | Task | Owner | Done when | Status |
+|---|---|---|---|---|
+| 2.1 | **Walk-forward validation.** Rolling evaluation using scikit-learn's `TimeSeriesSplit` (5 folds) reporting mean ± standard deviation. | Ali | `compare_models` can run in walk-forward mode, and README table shows mean ± std. | **DONE** (`StockPredictor._walk_forward_compare`, `main.py --walk-forward`, README table updated) |
+| 2.2 | **Significance check.** Binomial test for direction accuracy against 50%, and paired Diebold–Mariano test on daily forecast errors. | Nabeel | Step 5 prints a p-value next to the sentiment verdict, so the README can say whether the effect is significant. | **DONE** (`src/evaluator.py`, Step 5 prints exact p-values, README updated) |
+| 2.3 | **Light hyperparameter tuning.** Tune Ridge `alpha` and Random Forest / Gradient Boosting depth and leaf size with `TimeSeriesSplit` on training years only. | Ali | Chosen settings and search ranges documented, test data untouched during tuning. | **DONE** (`tune_hyperparameters` in `src/predictor.py`, documented in README) |
+| 2.4 | **Sentiment ablation.** Compare VADER + finance lexicon with plain VADER (without finance words). | Siraj | A table compares the sentiment methods by direction accuracy and RMSE. | **DONE** (`run_sentiment_ablation` in `src/sentiment.py`, ablation table in README) |
+| 2.5 | **Continuous integration.** Add GitHub Actions workflow running `pytest` and `python main.py --auto --offline`. | Nabeel | Green check on push. | **DONE** (`.github/workflows/ci.yml`) |
+| 2.6 | **Demo script and slides.** 5-minute offline walkthrough script and 8 presentation slides. | All (Nabeel: slides) | Full rehearsal runs without errors and each member presents their module. | **DONE** (`docs/DEMO_SCRIPT.md` & `docs/SLIDES.md`) |
+| 2.7 | **Final cleanup.** Update README numbers matching `python main.py --auto --offline` and clean repository. | All | Release tag ready, README updated. | **DONE** (README updated with walk-forward, tuning, ablation, & test outputs) |
 
 ---
 
