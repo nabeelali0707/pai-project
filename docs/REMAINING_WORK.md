@@ -35,6 +35,16 @@ pass. What remains splits into two phases.
 | 1.6 | **Use the full headline file if the network allows.** The AAPL cache uses only the first chronological sweep, 14,400 of the items, because the download was too slow. Run `python scripts/fetch_headlines.py AAPL` on a faster connection and rerun. | Siraj | Either the README numbers are updated using the full file, or the README states why the subset was kept. |
 | 1.7 | **Proposal admin.** Fill in the section numbers (currently "TBD") and get instructor approval. Also note that the code lives at `nabeelali0707/pai-project`, not the URL in the proposal. | Ali | The approved proposal is on file and the repo URL is confirmed with the instructor. |
 
+**Status:** The menu supports ticker changes and custom CSVs (1.3). The README
+documents why the AAPL first-pass headline subset is retained (1.6). Exact
+dependency versions are pinned, but compatibility is not verified until the
+test suite and offline pipeline pass on Python 3.10–3.12; checks on all four
+member laptops also remain. Additional ticker caches and their comparison
+table (1.4–1.5) need price/headline data and generated results. The module
+walkthroughs and proposal approval (1.1, 1.7) require the named team members
+and instructor. Treat these items as open until their done-when conditions
+are met.
+
 ---
 
 ## Phase 2: Strengthen the evaluation and prepare the demo

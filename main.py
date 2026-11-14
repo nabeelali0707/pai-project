@@ -44,9 +44,14 @@ class App:
     """
 
     def __init__(self, symbol: str = "AAPL", offline: bool = False, show_plots: bool = False,
-                 test_size: float = 0.2, relevant_only: bool = False):
+                 test_size: float = 0.2, relevant_only: bool = False,
+                 price_csv: str | None = None, headlines_csv: str | None = None):
         self.loader = DataLoader(symbol)
         self.symbol = self.loader.stock_symbol
+        self.price_csv = price_csv
+        self.headlines_csv = headlines_csv
+        if price_csv:
+            self.loader.file_path = price_csv
         self.offline = offline
         self.show_plots = show_plots
         self.test_size = test_size
@@ -70,12 +75,16 @@ class App:
     # ------------------------------------------------------------- 1. load
     def step_load(self) -> None:
         heading(f"1. Load data for {self.symbol}")
-        self.prices = self.loader.load_prices(offline=self.offline)
+        if self.price_csv:
+            self.prices = self.loader.load_csv(self.price_csv)
+            print(f"   [DataLoader] Loaded {len(self.prices)} rows from custom CSV {self.price_csv}.")
+        else:
+            self.prices = self.loader.load_prices(offline=self.offline)
         p = self.prices
         print(f"   Prices:    {len(p)} trading days, {p.index.min().date()} to {p.index.max().date()} "
               f"(source: {self.loader.source})")
         try:
-            self.headlines = self.loader.load_headlines()
+            self.headlines = self.loader.load_headlines(self.headlines_csv)
             h = self.headlines
             print(f"   Headlines: {len(h)} items, {h['date'].min().date()} to {h['date'].max().date()}")
         except FileNotFoundError as exc:
@@ -286,6 +295,40 @@ class App:
                      self.step_train, self.step_evaluate, self.step_predict):
             step()
 
+    def reconfigure_data(self) -> None:
+        """Select another ticker or custom CSVs, then discard stale pipeline state."""
+        print("\n   Enter a ticker symbol, or C to load custom CSV files.")
+        selection = input("   Selection: ").strip()
+        if not selection:
+            print("   No change.")
+            return
+
+        if selection.lower() == "c":
+            price_path = input("   Custom price CSV path (Enter to use this ticker's prices): ").strip()
+            headlines_path = input(
+                "   Custom headline CSV path (Enter to use this ticker's headlines): ").strip()
+            self.price_csv = price_path or None
+            self.headlines_csv = headlines_path or None
+        else:
+            self.symbol = selection.upper()
+            self.price_csv = None
+            self.headlines_csv = None
+
+        self.loader = DataLoader(self.symbol)
+        if self.price_csv:
+            self.loader.file_path = self.price_csv
+        self.prices = None
+        self.clean_prices = None
+        self.headlines = None
+        self.analyzer = None
+        self.daily_sentiment = None
+        self.builder = None
+        self.train_df = None
+        self.test_df = None
+        self.comparison = None
+        self.sentiment_attempted = False
+        print(f"   Data selection updated for {self.symbol}; previous pipeline results cleared.")
+
     # ------------------------------------------------------------ menu
     def menu(self) -> None:
         options = {
@@ -296,6 +339,7 @@ class App:
             "5": ("View metrics and charts", self.step_evaluate),
             "6": ("Predict next-day closing price", self.step_predict),
             "7": ("Run everything (1-6)", self.run_all),
+            "8": ("Change stock or load custom CSV files", self.reconfigure_data),
             "0": ("Exit", None),
         }
         while True:

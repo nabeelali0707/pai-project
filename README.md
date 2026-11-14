@@ -26,7 +26,8 @@ improve accuracy compared with a price-only model.
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate            # Windows   (Linux/macOS: source .venv/bin/activate)
+.venv\Scripts\activate            # Windows
+# Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
 
 python main.py                    # interactive menu
@@ -48,11 +49,15 @@ Options: `--symbol AAPL`, `--offline`, `--auto`, `--show` (open chart windows),
 5. View metrics and charts
 6. Predict next-day closing price
 7. Run everything (1-6)
+8. Change stock or load custom CSV files
 0. Exit
 ```
 
 Every option can be picked directly. Missing earlier steps run automatically.
 Charts are saved to `outputs/figures/`, and the results tables to `outputs/*.csv`.
+Choose menu option 8 to switch tickers or load a custom price and/or headline CSV.
+Price CSVs need a `Date` column and the OHLCV columns `Open`, `High`, `Low`,
+`Close`, and `Volume`. Headline CSVs need `date` and `headline` columns.
 
 ---
 
