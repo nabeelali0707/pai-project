@@ -206,6 +206,8 @@ class DataLoader:
         if not os.path.exists(path):
             raise FileNotFoundError(
                 f"No headline file at {path}. Run: python scripts/fetch_headlines.py {self.stock_symbol}")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"No headline file at {path}")
         df = pd.read_csv(path)
         self.validate_headlines(df)
         df["date"] = pd.to_datetime(df["date"], errors="coerce")

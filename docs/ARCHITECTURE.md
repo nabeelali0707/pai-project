@@ -134,6 +134,7 @@ flowchart TD
     Menu --> Sent["3. Run sentiment<br/>analysis"]
     Menu --> Train["4. Train and compare<br/>models"]
     Menu --> Eval["5. View metrics<br/>and charts"]
+    Menu --> Select["8. Change ticker or<br/>load custom CSVs"]
     Menu --> Exit([Exit])
 
     Load --> Clean

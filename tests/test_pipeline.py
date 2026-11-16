@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+from main import App
 from src.data_loader import DataLoader, DataValidationError
 from src.evaluator import ModelEvaluator
 from src.features import FeatureBuilder, PRICE_FEATURES, SENTIMENT_FEATURES, TARGET_PRICE, TARGET_RETURN
@@ -52,6 +53,52 @@ def test_normalise_multiindex_columns(prices):
     raw.columns = pd.MultiIndex.from_product([raw.columns, ["TEST"]], names=["Price", "Ticker"])
     df = DataLoader._normalise_api_frame(raw)
     assert "Close" in df.columns and not isinstance(df.columns, pd.MultiIndex)
+
+
+def test_load_custom_price_csv(prices, tmp_path):
+    path = tmp_path / "custom_prices.csv"
+    prices.to_csv(path, index_label="Date")
+    loader = DataLoader("TEST", cache_dir=str(tmp_path))
+
+    loaded = loader.load_csv(str(path))
+
+    assert loader.source == "csv"
+    pd.testing.assert_frame_equal(loaded, prices, check_freq=False)
+
+
+def test_load_custom_headlines_csv(headlines, tmp_path):
+    path = tmp_path / "custom_headlines.csv"
+    headlines.to_csv(path, index=False)
+    loaded = DataLoader("TEST", cache_dir=str(tmp_path)).load_headlines(str(path))
+
+    assert len(loaded) == len(headlines)
+    assert list(loaded.columns) == ["date", "headline"]
+
+
+def test_reconfigure_ticker_clears_pipeline_state(monkeypatch):
+    app = App()
+    app.prices = pd.DataFrame({"old": [1]})
+    app.comparison = object()
+    answers = iter(["MSFT"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    app.reconfigure_data()
+
+    assert app.symbol == "MSFT"
+    assert app.loader.stock_symbol == "MSFT"
+    assert app.prices is None
+    assert app.comparison is None
+
+
+def test_reconfigure_custom_csv_paths(monkeypatch):
+    app = App()
+    answers = iter(["c", "custom_prices.csv", "custom_headlines.csv"])
+    monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+    app.reconfigure_data()
+
+    assert app.price_csv == "custom_prices.csv"
+    assert app.headlines_csv == "custom_headlines.csv"
 
 
 # ---------------------------------------------------------------- Preprocessor

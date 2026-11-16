@@ -1,9 +1,10 @@
 # Remaining Work
 
-Status as of 12 Nov 2026. The pipeline from the proposal runs end to end.
+Status as of 16 Nov 2026. The pipeline from the proposal runs end to end.
 `python main.py --auto --offline` loads the cached data, cleans it, scores
-sentiment, trains and compares the models, and draws the charts. All 20 tests
-pass. What remains splits into two phases.
+sentiment, trains and compares the models, and draws the charts. The suite
+contains 30 tests; post-integration verification is still pending. What remains
+splits into two phases.
 
 - **Phase 1:** finish what the proposal promised and make sure every member can
   run and explain the project.
@@ -35,11 +36,22 @@ pass. What remains splits into two phases.
 | 1.6 | **Use the full headline file if the network allows.** The AAPL cache uses only the first chronological sweep, 14,400 of the items, because the download was too slow. Run `python scripts/fetch_headlines.py AAPL` on a faster connection and rerun. | Siraj | Either the README numbers are updated using the full file, or the README states why the subset was kept. |
 | 1.7 | **Proposal admin.** Fill in the section numbers (currently "TBD") and get instructor approval. Also note that the code lives at `nabeelali0707/pai-project`, not the URL in the proposal. | Ali | The approved proposal is on file and the repo URL is confirmed with the instructor. |
 
+**Status:** The menu supports ticker changes and custom CSVs (1.3). The README
+documents why the AAPL first-pass headline subset is retained (1.6). Exact
+dependency versions are pinned, but compatibility is not verified until the
+test suite and offline pipeline pass on Python 3.10–3.12; checks on all four
+member laptops also remain. Additional ticker caches and their comparison
+table (1.4–1.5) need price/headline data and generated results. The module
+walkthroughs and proposal approval (1.1, 1.7) require the named team members
+and instructor. Treat these items as open until their done-when conditions
+are met.
+
 ---
 
 ## Phase 2: Strengthen the evaluation and prepare the demo
 
-**Status:** Completed.
+**Status:** Implementation is complete; CI, the full demo rehearsal, and the
+release tag still need verification.
 
 | # | Task | Owner | Done when | Status |
 |---|---|---|---|---|
@@ -47,9 +59,9 @@ pass. What remains splits into two phases.
 | 2.2 | **Significance check.** Binomial test for direction accuracy against 50%, and paired Diebold–Mariano test on daily forecast errors. | Nabeel | Step 5 prints a p-value next to the sentiment verdict, so the README can say whether the effect is significant. | **DONE** (`src/evaluator.py`, Step 5 prints exact p-values, README updated) |
 | 2.3 | **Light hyperparameter tuning.** Tune Ridge `alpha` and Random Forest / Gradient Boosting depth and leaf size with `TimeSeriesSplit` on training years only. | Ali | Chosen settings and search ranges documented, test data untouched during tuning. | **DONE** (`tune_hyperparameters` in `src/predictor.py`, documented in README) |
 | 2.4 | **Sentiment ablation.** Compare VADER + finance lexicon with plain VADER (without finance words). | Siraj | A table compares the sentiment methods by direction accuracy and RMSE. | **DONE** (`run_sentiment_ablation` in `src/sentiment.py`, ablation table in README) |
-| 2.5 | **Continuous integration.** Add GitHub Actions workflow running `pytest` and `python main.py --auto --offline`. | Nabeel | Green check on push. | **DONE** (`.github/workflows/ci.yml`) |
-| 2.6 | **Demo script and slides.** 5-minute offline walkthrough script and 8 presentation slides. | All (Nabeel: slides) | Full rehearsal runs without errors and each member presents their module. | **DONE** (`docs/DEMO_SCRIPT.md` & `docs/SLIDES.md`) |
-| 2.7 | **Final cleanup.** Update README numbers matching `python main.py --auto --offline` and clean repository. | All | Release tag ready, README updated. | **DONE** (README updated with walk-forward, tuning, ablation, & test outputs) |
+| 2.5 | **Continuous integration.** Add GitHub Actions workflow running `pytest` and `python main.py --auto --offline`. | Nabeel | Green check on push. | **PENDING** (workflow added; green run not yet verified) |
+| 2.6 | **Demo script and slides.** 5-minute offline walkthrough script and 8 presentation slides. | All (Nabeel: slides) | Full rehearsal runs without errors and each member presents their module. | **PARTIAL** (script and slides are prepared; rehearsal and member presentations remain) |
+| 2.7 | **Final cleanup.** Update README numbers matching `python main.py --auto --offline` and clean repository. | All | The `v1.0` tag is on GitHub, and README numbers match the offline pipeline. | **PARTIAL** (README updated; verification and release tag remain) |
 
 ---
 
