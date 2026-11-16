@@ -121,7 +121,8 @@ class StockPredictor(BasePredictor):
     def compare_models(train_df: pd.DataFrame, test_df: pd.DataFrame,
                        feature_sets: dict[str, list[str]],
                        predictor_factories: dict[str, callable] | None = None,
-                       include_naive: bool = True) -> "ComparisonResult":
+                       include_naive: bool = True,
+                       walk_forward: int | None = None) -> "ComparisonResult":
         """Train every model on every feature set and evaluate on the test period.
 
         Args:
@@ -130,8 +131,18 @@ class StockPredictor(BasePredictor):
             predictor_factories: name -> zero-argument callable returning a
                 fresh ``BasePredictor``. Defaults to :data:`MODEL_FACTORIES`.
             include_naive: Also evaluate the no-change baseline.
+            walk_forward: When given (>= 2), ignore the single split and evaluate
+                with that many expanding-window folds over ``train_df + test_df``
+                (scikit-learn ``TimeSeriesSplit``). Metrics become the mean across
+                folds and every metric gains a ``*_std`` column with the fold spread.
         """
         factories = predictor_factories or MODEL_FACTORIES
+        if walk_forward and walk_forward >= 2:
+            full = pd.concat([train_df, test_df]).sort_index()
+            full = full[~full.index.duplicated(keep="last")]
+            return StockPredictor._walk_forward(full, feature_sets, walk_forward,
+                                                factories, include_naive)
+
         actual = test_df[TARGET_PRICE].to_numpy(dtype=float)
         prev_close = test_df["Close"].to_numpy(dtype=float)
         rows, predictions, fitted = [], {}, {}
@@ -156,7 +167,58 @@ class StockPredictor(BasePredictor):
 
         results = pd.DataFrame(rows).sort_values("RMSE").reset_index(drop=True)
         return ComparisonResult(results=results, predictions=predictions,
-                                actual=pd.Series(actual, index=test_df.index), models=fitted)
+                                actual=pd.Series(actual, index=test_df.index), models=fitted,
+                                previous=pd.Series(prev_close, index=test_df.index))
+
+    @staticmethod
+    def _walk_forward(full: pd.DataFrame, feature_sets: dict[str, list[str]], n_splits: int,
+                      factories: dict[str, callable], include_naive: bool) -> "ComparisonResult":
+        """Expanding-window evaluation: train on the past, score the next block.
+
+        Each fold is a normal :meth:`compare_models` run, so the model and
+        feature-set handling is identical to the single-split mode. Predictions
+        from every fold are pooled (out-of-fold) for the plots and significance
+        tests; ``models`` holds the last fold's fitted models for feature
+        importances only.
+        """
+        from sklearn.model_selection import TimeSeriesSplit  # only needed in this mode
+
+        folds, fold_rows = [], {}
+        pooled_predictions, pooled_actual, pooled_previous = {}, [], []
+        fitted = {}
+        for train_idx, test_idx in TimeSeriesSplit(n_splits=n_splits).split(full):
+            train_df, test_df = full.iloc[train_idx], full.iloc[test_idx]
+            fold = StockPredictor.compare_models(train_df, test_df, feature_sets,
+                                                 factories, include_naive)
+            folds.append(fold)
+            pooled_actual.append(fold.actual)
+            pooled_previous.append(fold.previous)
+            for key, series in fold.predictions.items():
+                pooled_predictions.setdefault(key, []).append(series)
+            for _, row in fold.results.iterrows():
+                fold_rows.setdefault((row["model"], row["feature_set"]), []).append(row)
+            fitted.update(fold.models)
+
+        rows = []
+        for (model_name, set_name), records in fold_rows.items():
+            frame = pd.DataFrame(records)
+            row = {"model": model_name, "feature_set": set_name,
+                   "n_features": int(frame["n_features"].iloc[0]), "folds": len(frame)}
+            for metric in ("MAE", "RMSE", "R2", "Direction_Acc"):
+                row[metric] = float(frame[metric].mean())
+                row[f"{metric}_std"] = float(frame[metric].std(ddof=1))
+            rows.append(row)
+
+        results = pd.DataFrame(rows).sort_values("RMSE").reset_index(drop=True)
+        return ComparisonResult(
+            results=results,
+            predictions={k: pd.concat(v).sort_index() for k, v in pooled_predictions.items()},
+            actual=pd.concat(pooled_actual).sort_index(),
+            models=fitted,
+            previous=pd.concat(pooled_previous).sort_index(),
+            walk_forward=True,
+            fold_count=len(folds),
+        )
 
 
 class LinearRegressionPredictor(StockPredictor):
@@ -204,6 +266,9 @@ class ComparisonResult:
     predictions: dict = field(default_factory=dict)
     actual: pd.Series | None = None
     models: dict = field(default_factory=dict)
+    previous: pd.Series | None = None
+    walk_forward: bool = False
+    fold_count: int = 1
 
     def best(self, feature_set: str | None = None) -> pd.Series:
         """Lowest-RMSE row, optionally restricted to one feature set."""
@@ -226,4 +291,15 @@ class ComparisonResult:
             "DirAcc_enhanced": enh.loc[common, "Direction_Acc"],
         })
         out["RMSE_change_%"] = (out["RMSE_enhanced"] / out["RMSE_baseline"] - 1) * 100
+        return out
+
+    def format_summary(self) -> pd.DataFrame:
+        """Metrics as text: ``mean ± std`` across folds when walk-forward was used."""
+        out = self.results[["model", "feature_set", "n_features"]].copy()
+        for metric in ("MAE", "RMSE", "R2", "Direction_Acc"):
+            if self.walk_forward and f"{metric}_std" in self.results:
+                out[metric] = [f"{mean:.4f} ± {std:.4f}" for mean, std
+                               in zip(self.results[metric], self.results[f"{metric}_std"])]
+            else:
+                out[metric] = self.results[metric].round(4)
         return out

@@ -151,6 +151,32 @@ def test_polymorphic_predictors(prices):
                                test["Close"])
 
 
+def test_walk_forward_comparison(prices):
+    feats = FeatureBuilder(prices).build().dropna(subset=[TARGET_RETURN])
+    train, test = Preprocessor.chronological_split(feats)
+    res = StockPredictor.compare_models(train, test, {"price": PRICE_FEATURES},
+                                        {"Ridge": RidgePredictor}, walk_forward=3)
+    assert res.walk_forward and res.fold_count == 3
+    assert {"RMSE_std", "Direction_Acc_std"} <= set(res.results.columns)
+    # expanding folds never score the first block, so predictions are out-of-fold only
+    assert 0 < len(res.actual) < len(feats)
+    assert all(len(p) == len(res.actual) for p in res.predictions.values())
+    assert np.isfinite(res.actual.to_numpy()).all()
+    assert "±" in res.format_summary()["RMSE"].iloc[0]
+
+
+def test_significance_helpers():
+    previous = np.full(8, 10.0)
+    actual = np.array([11, 9, 11, 9, 11, 9, 11, 9.0])
+    perfect = ModelEvaluator(actual, actual).direction_significance(previous)
+    assert perfect["accuracy"] == 1.0 and perfect["n"] == 8
+    assert perfect["p_value"] < 0.05           # 8/8 is unlikely under a coin flip
+    same = ModelEvaluator.paired_error_test(actual, actual, actual)
+    assert same["mean_difference"] == 0 and same["p_value"] == pytest.approx(1.0)
+    worse = ModelEvaluator.paired_error_test(actual, actual, actual + 1)
+    assert worse["mean_difference"] < 0 and worse["p_value"] < 0.05
+
+
 def test_untrained_model_raises(prices):
     with pytest.raises(RuntimeError):
         RidgePredictor().predict(prices)

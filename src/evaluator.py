@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy import stats
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIGURE_DIR = os.path.join(PROJECT_ROOT, "outputs", "figures")
@@ -81,6 +82,46 @@ class ModelEvaluator:
 
             return float("nan")
         return float(np.mean(real_move[mask] == pred_move[mask]))
+
+    def direction_significance(self, previous, null: float = 0.5) -> dict:
+        """Binomial test: is the up/down hit rate better than a coin flip?
+
+        Returns the number of evaluated days, the number of correct directions
+        and a two-sided p-value. Above 0.05 the edge could easily be noise.
+        """
+        previous = np.asarray(previous, dtype=float)
+        real_move = np.sign(self.actual - previous)
+        pred_move = np.sign(self.predicted - previous)
+        mask = real_move != 0
+        n = int(mask.sum())
+        if n == 0:
+            return {"n": 0, "correct": 0, "accuracy": float("nan"), "p_value": float("nan")}
+        correct = int(np.sum(real_move[mask] == pred_move[mask]))
+        result = stats.binomtest(correct, n, null, alternative="two-sided")
+        return {"n": n, "correct": correct, "accuracy": correct / n,
+                "p_value": float(result.pvalue)}
+
+    @staticmethod
+    def paired_error_test(actual, predicted_a, predicted_b) -> dict:
+        """Paired t-test on absolute errors of two models over the same days.
+
+        ``mean_difference = mean(|err_a|) - mean(|err_b|)``, so a positive value
+        means model B was closer. The p-value is two-sided.
+        """
+        actual = np.asarray(actual, dtype=float)
+        err_a = np.abs(actual - np.asarray(predicted_a, dtype=float))
+        err_b = np.abs(actual - np.asarray(predicted_b, dtype=float))
+        if err_a.shape != err_b.shape:
+            raise ValueError(f"Shape mismatch: {err_a.shape} vs {err_b.shape}")
+        if np.allclose(err_a, err_b):  # identical errors: scipy would return NaN
+            return {"mean_abs_error_a": float(err_a.mean()),
+                    "mean_abs_error_b": float(err_b.mean()),
+                    "mean_difference": 0.0, "t": 0.0, "p_value": 1.0}
+        result = stats.ttest_rel(err_a, err_b)
+        return {"mean_abs_error_a": float(err_a.mean()),
+                "mean_abs_error_b": float(err_b.mean()),
+                "mean_difference": float((err_a - err_b).mean()),
+                "t": float(result.statistic), "p_value": float(result.pvalue)}
 
     def summary(self, previous=None) -> dict:
         """All metrics in one dict (direction accuracy needs ``previous``)."""

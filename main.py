@@ -53,13 +53,15 @@ class App:
     """
 
     def __init__(self, symbol: str = "AAPL", offline: bool = False, show_plots: bool = False,
-                 test_size: float = 0.2, relevant_only: bool = False):
+                 test_size: float = 0.2, relevant_only: bool = False,
+                 walk_forward: int = 0):
         self.loader = DataLoader(symbol)
         self.symbol = self.loader.stock_symbol
         self.offline = offline
         self.show_plots = show_plots
         self.test_size = test_size
         self.relevant_only = relevant_only
+        self.walk_forward = walk_forward
 
         self.price_path: str | None = None
         self.headline_path: str | None = None
@@ -260,8 +262,12 @@ class App:
             feature_sets[ENHANCED] = self.builder.feature_columns(True)
         print(f"   Models: {', '.join(MODEL_FACTORIES)}  x  {len(feature_sets)} feature sets\n")
 
-        self.comparison = StockPredictor.compare_models(self.train_df, self.test_df, feature_sets)
-        print(self.comparison.results.round(4).to_string(index=False))
+        self.comparison = StockPredictor.compare_models(self.train_df, self.test_df, feature_sets,
+                                                        walk_forward=self.walk_forward or None)
+        if self.comparison.walk_forward:
+            print(f"   Walk-forward evaluation: {self.comparison.fold_count} expanding folds over "
+                  f"{len(rows)} labelled days (mean ± std across folds)\n")
+        print(self.comparison.format_summary().to_string(index=False))
         self._save_results()
 
     # -------------------------------------------------------- 5. evaluate
@@ -300,6 +306,21 @@ class App:
             margin = naive["RMSE"] - best_enh["RMSE"]
             print(f"   - The best enhanced model {'beats' if margin > 0 else 'does NOT beat'} the naive "
                   f"'no change' forecast on RMSE (margin ${margin:+.4f}).")
+            if res.previous is not None:
+                print("\n   Significance tests:")
+                baseline_key = (best_base["model"], BASELINE)
+                for label, row, key_ in (("price only", best_base, baseline_key),
+                                         ("+ sentiment", best_enh, (best_enh["model"], ENHANCED))):
+                    sig = ModelEvaluator(res.actual, res.predictions[key_]).direction_significance(res.previous)
+                    print(f"   - {row['model']} ({label}): direction {sig['accuracy']:.1%} "
+                          f"({sig['correct']}/{sig['n']} days), binomial p = {sig['p_value']:.3f} vs 50%.")
+                paired_key = (best_enh["model"], BASELINE)
+                if baseline_key == paired_key:
+                    pair = ModelEvaluator.paired_error_test(res.actual, res.predictions[paired_key],
+                                                            res.predictions[(best_enh["model"], ENHANCED)])
+                    print(f"   - Paired absolute errors, {best_enh['model']}: ${pair['mean_abs_error_a']:.4f} "
+                          f"price only vs ${pair['mean_abs_error_b']:.4f} + sentiment, "
+                          f"mean difference ${pair['mean_difference']:+.4f}, p = {pair['p_value']:.3f}.")
 
         key = (best["model"], best["feature_set"])
         model = res.models[key]
@@ -408,6 +429,8 @@ def parse_args(argv=None):
     parser.add_argument("--test-size", type=float, default=0.2, help="share of days used for testing")
     parser.add_argument("--relevant-only", action="store_true",
                         help="score only headlines that mention the company (keyword filter)")
+    parser.add_argument("--walk-forward", type=int, default=0, metavar="FOLDS",
+                        help="evaluate with FOLDS expanding time-series folds instead of one split")
     return parser.parse_args(argv)
 
 
@@ -415,7 +438,7 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     os.makedirs(FIGURE_DIR, exist_ok=True)
     app = App(args.symbol, offline=args.offline, show_plots=args.show, test_size=args.test_size,
-              relevant_only=args.relevant_only)
+              relevant_only=args.relevant_only, walk_forward=args.walk_forward)
     try:
         if args.auto:
             app.run_all()
