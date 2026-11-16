@@ -19,102 +19,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-
-try:
-    from scipy import stats
-except ImportError:
-    stats = None
+from scipy import stats
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIGURE_DIR = os.path.join(PROJECT_ROOT, "outputs", "figures")
 
 sns.set_theme(style="whitegrid", context="notebook")
-
-
-def binomial_test_direction(k: int, n: int, p0: float = 0.5, alternative: str = "greater") -> dict:
-    """Binomial significance test for direction accuracy against null hypothesis p0.
-
-    Args:
-        k: Number of correct directional predictions.
-        n: Total number of trading days with non-zero movement.
-        p0: Expected probability under null hypothesis (default 0.5 for a coin flip).
-        alternative: "greater" (one-sided) or "two-sided".
-
-    Returns:
-        dict with keys: 'k', 'n', 'accuracy', 'p_value', 'significant_05'.
-    """
-    if n <= 0:
-        return {"k": 0, "n": 0, "accuracy": float("nan"), "p_value": float("nan"), "significant_05": False}
-    acc = float(k / n)
-    if stats is not None and hasattr(stats, "binomtest"):
-        res = stats.binomtest(int(k), int(n), p=p0, alternative=alternative)
-        p_val = float(res.pvalue)
-    else:
-        # Fallback normal approximation with continuity correction
-        from math import erf
-        z = (k - n * p0 - 0.5) / np.sqrt(n * p0 * (1.0 - p0))
-        phi = 0.5 * (1.0 + erf(z / np.sqrt(2.0)))
-        p_val = float(1.0 - phi if alternative == "greater" else 2.0 * min(phi, 1.0 - phi))
-    return {
-        "k": int(k),
-        "n": int(n),
-        "accuracy": acc,
-        "p_value": p_val,
-        "significant_05": bool(p_val < 0.05),
-    }
-
-
-def diebold_mariano_test(errors_baseline, errors_enhanced, loss: str = "squared") -> dict:
-    """Diebold-Mariano test comparing baseline vs enhanced forecast accuracy.
-
-    For 1-step ahead daily forecast, errors have no serial correlation under H0,
-    so this corresponds to a paired test on loss differentials d_t.
-
-    Args:
-        errors_baseline: True minus predicted prices for baseline model (y - y_hat_base).
-        errors_enhanced: True minus predicted prices for enhanced model (y - y_hat_enh).
-        loss: "squared" (MSE loss) or "absolute" (MAE loss).
-
-    Returns:
-        dict with keys: 'stat', 'p_value', 'mean_diff', 'loss', 'significant_05'.
-        mean_diff > 0 indicates enhanced model has lower error than baseline.
-    """
-    e_base = np.asarray(errors_baseline, dtype=float)
-    e_enh = np.asarray(errors_enhanced, dtype=float)
-    if e_base.shape != e_enh.shape or e_base.size == 0:
-        raise ValueError(f"Shape mismatch or empty errors: baseline {e_base.shape} vs enhanced {e_enh.shape}")
-
-    if loss == "squared":
-        d = e_base ** 2 - e_enh ** 2
-    elif loss == "absolute":
-        d = np.abs(e_base) - np.abs(e_enh)
-    else:
-        raise ValueError(f"Unknown loss {loss!r}, expected 'squared' or 'absolute'.")
-
-    n = len(d)
-    mean_d = float(np.mean(d))
-    var_d = float(np.var(d, ddof=1)) if n > 1 else 0.0
-    se_d = np.sqrt(var_d / n) if var_d > 0 else 0.0
-
-    if se_d == 0.0:
-        dm_stat = 0.0
-        p_val = 1.0
-    else:
-        dm_stat = float(mean_d / se_d)
-        if stats is not None and hasattr(stats, "t"):
-            p_val = float(2.0 * stats.t.sf(np.abs(dm_stat), df=n - 1))
-        else:
-            from math import erf
-            phi = 0.5 * (1.0 + erf(np.abs(dm_stat) / np.sqrt(2.0)))
-            p_val = float(2.0 * (1.0 - phi))
-
-    return {
-        "stat": dm_stat,
-        "p_value": p_val,
-        "mean_diff": mean_d,
-        "loss": loss,
-        "significant_05": bool(p_val < 0.05),
-    }
 
 
 class ModelEvaluator:
@@ -173,35 +83,51 @@ class ModelEvaluator:
             return float("nan")
         return float(np.mean(real_move[mask] == pred_move[mask]))
 
-    def direction_counts(self, previous) -> tuple[int, int]:
-        """Return (correct_count, total_count) of directional moves.
+    def direction_significance(self, previous, null: float = 0.5) -> dict:
+        """Binomial test: is the up/down hit rate better than a coin flip?
 
-        Args:
-            previous: The close on the day each prediction was made.
+        Returns the number of evaluated days, the number of correct directions
+        and a two-sided p-value. Above 0.05 the edge could easily be noise.
         """
         previous = np.asarray(previous, dtype=float)
         real_move = np.sign(self.actual - previous)
         pred_move = np.sign(self.predicted - previous)
         mask = real_move != 0
-        if not mask.any() or not pred_move.any():
-            return 0, 0
+        n = int(mask.sum())
+        if n == 0:
+            return {"n": 0, "correct": 0, "accuracy": float("nan"), "p_value": float("nan")}
         correct = int(np.sum(real_move[mask] == pred_move[mask]))
-        total = int(np.sum(mask))
-        return correct, total
+        result = stats.binomtest(correct, n, null, alternative="two-sided")
+        return {"n": n, "correct": correct, "accuracy": correct / n,
+                "p_value": float(result.pvalue)}
 
-    def direction_test(self, previous, p0: float = 0.5, alternative: str = "greater") -> dict:
-        """Run binomial test for direction accuracy against p0 (default 50%)."""
-        k, n = self.direction_counts(previous)
-        return binomial_test_direction(k, n, p0=p0, alternative=alternative)
+    @staticmethod
+    def paired_error_test(actual, predicted_a, predicted_b) -> dict:
+        """Paired t-test on absolute errors of two models over the same days.
+
+        ``mean_difference = mean(|err_a|) - mean(|err_b|)``, so a positive value
+        means model B was closer. The p-value is two-sided.
+        """
+        actual = np.asarray(actual, dtype=float)
+        err_a = np.abs(actual - np.asarray(predicted_a, dtype=float))
+        err_b = np.abs(actual - np.asarray(predicted_b, dtype=float))
+        if err_a.shape != err_b.shape:
+            raise ValueError(f"Shape mismatch: {err_a.shape} vs {err_b.shape}")
+        if np.allclose(err_a, err_b):  # identical errors: scipy would return NaN
+            return {"mean_abs_error_a": float(err_a.mean()),
+                    "mean_abs_error_b": float(err_b.mean()),
+                    "mean_difference": 0.0, "t": 0.0, "p_value": 1.0}
+        result = stats.ttest_rel(err_a, err_b)
+        return {"mean_abs_error_a": float(err_a.mean()),
+                "mean_abs_error_b": float(err_b.mean()),
+                "mean_difference": float((err_a - err_b).mean()),
+                "t": float(result.statistic), "p_value": float(result.pvalue)}
 
     def summary(self, previous=None) -> dict:
         """All metrics in one dict (direction accuracy needs ``previous``)."""
         out = {"MAE": self.mae(), "RMSE": self.rmse(), "R2": self.r2(), "MAPE_%": self.mape()}
         if previous is not None:
             out["Direction_Acc"] = self.direction_accuracy(previous)
-            k, n = self.direction_counts(previous)
-            out["Direction_Correct"] = k
-            out["Direction_Total"] = n
         return out
 
     # ------------------------------------------------------------------ plots

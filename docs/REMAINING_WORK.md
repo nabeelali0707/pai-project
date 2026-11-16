@@ -1,14 +1,25 @@
 # Remaining Work
 
-Status as of 16 Nov 2026. The pipeline from the proposal runs end to end.
+Status as of 12 Nov 2026. The pipeline from the proposal runs end to end.
 `python main.py --auto --offline` loads the cached data, cleans it, scores
-sentiment, trains and compares the models, and draws the charts. The suite
-contains 31 tests; post-integration verification is still pending. What remains
-splits into two phases.
+sentiment, trains and compares the models, and draws the charts. All 20 tests
+pass. What remains splits into two phases.
 
 - **Phase 1:** finish what the proposal promised and make sure every member can
   run and explain the project.
 - **Phase 2:** make the "does sentiment help?" result more reliable and prepare the demo.
+
+## Status on 16 Nov 2026
+
+Done in the repository: 1.3 (menu symbol + custom CSV), 1.4 (AAPL, MSFT and NVDA cached and
+runnable offline), 1.5 (multi-stock results table in the README), 1.6 (all caches rebuilt from
+the complete headline files), 2.1 (walk-forward mean ± std), 2.2 (binomial and paired tests),
+2.3 (tuning on training years only), 2.4 (sentiment ablation), 2.5 (GitHub Actions CI), and
+the README/results refresh from 2.7.
+
+Still open: 1.2 (verify Python 3.10–3.12 and pandas 2.x on every member's laptop — only
+Python 3.14.3 + pandas 3.0.1 is verified here), 1.7 (proposal admin), 2.6 (demo rehearsal and
+slides), and tagging the `v1.0` release.
 
 ## Already done
 
@@ -26,33 +37,31 @@ splits into two phases.
 
 **Target:** by the end of week 8 (proposal milestone 4).
 
-| # | Task | Owner | Done when | Status |
-|---|---|---|---|---|
-| 1.1 | **Review your own module and be able to explain it.** Read it line by line, run its tests, and note anything unclear in an issue. The viva will ask each member about their module. | All (Zain: `data_loader`, `preprocessor`; Siraj: `sentiment`; Ali: `predictor`, `main`; Nabeel: `evaluator`, `tests`) | Each member can explain their module's purpose, inputs, outputs and one design choice, such as why weekend news moves to Monday. | **OPEN** (Viva prep for each team member) |
-| 1.2 | **Install and run on every member's laptop.** It has only been tested on Python 3.14 with pandas 3.0. Check Python 3.10–3.12 and pandas 2.x, then pin the tested versions in `requirements.txt`. | Nabeel | `pip install -r requirements.txt`, `python -m pytest` and `python main.py --auto --offline` all work on 4 machines. | **DONE** (Installed with `uv` on Python 3.12.13 with pandas 2.2.3; all 31 tests & offline pipeline verified passing) |
-| 1.3 | **Let the user choose the stock and the data file from the menu.** The proposal says the user selects a stock dataset, but the menu currently uses AAPL unless `--symbol` is passed. Add a menu option to change the symbol and to load a custom price or headline CSV. `DataLoader.load_csv()` already accepts a path. | Zain | From the menu you can switch to MSFT or load your own CSV, and invalid files show a clear error instead of crashing. | **DONE** (Menu option 11 supports switching symbol or custom CSV paths) |
-| 1.4 | **Cache more than one stock.** The proposal says "selected stocks", but only AAPL is cached. Add at least 2 more from the dataset, for example MSFT and NVDA, using `scripts/fetch_headlines.py <SYM> --first-pass`. | Zain / Siraj | `data/cache/` holds price and headline files for 3 or more tickers, and each runs offline. | **DONE** (`AAPL`, `MSFT`, and `NVDA` cached with prices, headlines, and sentiment; all run offline) |
-| 1.5 | **Results table across stocks.** Run the comparison for every cached ticker and add one summary table (RMSE and direction accuracy, baseline vs enhanced) to the README. | Ali | The README answers whether sentiment helps for each stock, not only AAPL. | **DONE** (Cross-stock evaluation table and findings documented in README) |
-| 1.6 | **Use the full headline file if the network allows.** The AAPL cache uses only the first chronological sweep, 14,400 of the items, because the download was too slow. Run `python scripts/fetch_headlines.py AAPL` on a faster connection and rerun. | Siraj | Either the README numbers are updated using the full file, or the README states why the subset was kept. | **DONE** (Documented in README and cache scripts why first-pass sweep is retained) |
-| 1.7 | **Proposal admin.** Fill in the section numbers (currently "TBD") and get instructor approval. Also note that the code lives at `nabeelali0707/pai-project`, not the URL in the proposal. | Ali | The approved proposal is on file and the repo URL is confirmed with the instructor. | **OPEN** (Admin paperwork with instructor) |
-
-**Status:** Technical implementation of Phase 1 is complete. Menu ticker changes and custom CSVs (1.3), multi-stock caching for AAPL, MSFT, NVDA (1.4), multi-stock evaluation table (1.5), and Python 3.12 / pandas 2.2 verification via `uv` (1.2) are done. Only viva preparation (1.1) and administrative proposal signoff (1.7) remain for team members.
+| # | Task | Owner | Done when |
+|---|---|---|---|
+| 1.1 | **Review your own module and be able to explain it.** Read it line by line, run its tests, and note anything unclear in an issue. The viva will ask each member about their module. | All (Zain: `data_loader`, `preprocessor`; Siraj: `sentiment`; Ali: `predictor`, `main`; Nabeel: `evaluator`, `tests`) | Each member can explain their module's purpose, inputs, outputs and one design choice, such as why weekend news moves to Monday. |
+| 1.2 | **Install and run on every member's laptop.** It has only been tested on Python 3.14 with pandas 3.0. Check Python 3.10–3.12 and pandas 2.x, then pin the tested versions in `requirements.txt`. | Nabeel | `pip install -r requirements.txt`, `python -m pytest` and `python main.py --auto --offline` all work on 4 machines. |
+| 1.3 | **Let the user choose the stock and the data file from the menu.** The proposal says the user selects a stock dataset, but the menu currently uses AAPL unless `--symbol` is passed. Add a menu option to change the symbol and to load a custom price or headline CSV. `DataLoader.load_csv()` already accepts a path. | Zain | From the menu you can switch to MSFT or load your own CSV, and invalid files show a clear error instead of crashing. |
+| 1.4 | **Cache more than one stock.** The proposal says "selected stocks", but only AAPL is cached. Add at least 2 more from the dataset, for example MSFT and NVDA, using `scripts/fetch_headlines.py <SYM> --first-pass`. | Zain / Siraj | `data/cache/` holds price and headline files for 3 or more tickers, and each runs offline. |
+| 1.5 | **Results table across stocks.** Run the comparison for every cached ticker and add one summary table (RMSE and direction accuracy, baseline vs enhanced) to the README. | Ali | The README answers whether sentiment helps for each stock, not only AAPL. |
+| 1.6 | **Use the full headline file if the network allows.** The AAPL cache uses only the first chronological sweep, 14,400 of the items, because the download was too slow. Run `python scripts/fetch_headlines.py AAPL` on a faster connection and rerun. | Siraj | Either the README numbers are updated using the full file, or the README states why the subset was kept. |
+| 1.7 | **Proposal admin.** Fill in the section numbers (currently "TBD") and get instructor approval. Also note that the code lives at `nabeelali0707/pai-project`, not the URL in the proposal. | Ali | The approved proposal is on file and the repo URL is confirmed with the instructor. |
 
 ---
 
 ## Phase 2: Strengthen the evaluation and prepare the demo
 
-**Status:** Implementation is complete; CI workflow verified locally on Python 3.12; demo slides and script ready for rehearsal.
+**Target:** by one week before the lab final (proposal milestone 5).
 
-| # | Task | Owner | Done when | Status |
-|---|---|---|---|---|
-| 2.1 | **Walk-forward validation.** Rolling evaluation using scikit-learn's `TimeSeriesSplit` (5 folds) reporting mean ± standard deviation. | Ali | `compare_models` can run in walk-forward mode, and README table shows mean ± std. | **DONE** (`StockPredictor._walk_forward_compare`, `main.py --walk-forward`, README table updated) |
-| 2.2 | **Significance check.** Binomial test for direction accuracy against 50%, and paired Diebold–Mariano test on daily forecast errors. | Nabeel | Step 5 prints a p-value next to the sentiment verdict, so the README can say whether the effect is significant. | **DONE** (`src/evaluator.py`, Step 5 prints exact p-values, README updated) |
-| 2.3 | **Light hyperparameter tuning.** Tune Ridge `alpha` and Random Forest / Gradient Boosting depth and leaf size with `TimeSeriesSplit` on training years only. | Ali | Chosen settings and search ranges documented, test data untouched during tuning. | **DONE** (`tune_hyperparameters` in `src/predictor.py`, documented in README) |
-| 2.4 | **Sentiment ablation.** Compare VADER + finance lexicon with plain VADER (without finance words). | Siraj | A table compares the sentiment methods by direction accuracy and RMSE. | **DONE** (`run_sentiment_ablation` in `src/sentiment.py`, ablation table in README) |
-| 2.5 | **Continuous integration.** Add GitHub Actions workflow running `pytest` and `python main.py --auto --offline`. | Nabeel | Green check on push. | **DONE** (`.github/workflows/ci.yml` added; matrix verified locally on Python 3.12) |
-| 2.6 | **Demo script and slides.** 5-minute offline walkthrough script and 8 presentation slides. | All (Nabeel: slides) | Full rehearsal runs without errors and each member presents their module. | **READY** (`docs/DEMO_SCRIPT.md` and `docs/SLIDES.md` prepared; oral viva rehearsal remains) |
-| 2.7 | **Final cleanup.** Update README numbers matching `python main.py --auto --offline` and clean repository. | All | The `v1.0` tag is on GitHub, and README numbers match the offline pipeline. | **DONE** (Offline numbers synchronized across AAPL, MSFT, and NVDA; workspace clean) |
+| # | Task | Owner | Done when |
+|---|---|---|---|
+| 2.1 | **Walk-forward validation.** Results now come from a single train/test split, so differences of 1–2 points are within noise. Add a rolling evaluation using scikit-learn's `TimeSeriesSplit` (for example 5 folds) and report each metric as mean ± standard deviation. | Ali | `compare_models` can run in walk-forward mode, and the README table shows mean ± std. |
+| 2.2 | **Significance check.** Add a binomial test for direction accuracy against 50%, and a paired test on the daily errors (Diebold–Mariano or a paired t-test) for baseline vs enhanced. | Nabeel | Step 5 prints a p-value next to the sentiment verdict, so the README can say whether the effect is significant. |
+| 2.3 | **Light hyperparameter tuning.** Tune Ridge `alpha` and the Random Forest and Gradient Boosting depth and leaf size, using `TimeSeriesSplit` on the training years only. Never tune on the test period. | Ali | The chosen settings and the search ranges are documented, and the test data is untouched during tuning. |
+| 2.4 | **Sentiment ablation.** Compare the current VADER + finance lexicon with plain VADER, without the finance words. FinBERT is an optional stretch goal and only if it runs offline in reasonable time. This shows whether our finance lexicon matters. | Siraj | A small table compares the sentiment methods by direction accuracy and RMSE. |
+| 2.5 | **Continuous integration.** Add a GitHub Actions workflow that runs `pytest` and `python main.py --auto --offline` on every push. | Nabeel | A green check appears on GitHub for every commit. |
+| 2.6 | **Demo script and slides.** Prepare a 5-minute walkthrough using the menu in `--offline` mode: load, clean, sentiment, train, charts, prediction. Prepare 6–8 slides covering the problem, architecture, NLP, results, the "naive baseline" lesson and limitations. Rehearse once with the network switched off. | All (Nabeel: slides) | A full rehearsal runs without errors and each member presents their own module. |
+| 2.7 | **Final cleanup.** Update the README results after 2.1–2.4, remove anything unused, and tag the release `v1.0`. | All | The `v1.0` tag is on GitHub, and the README numbers match `python main.py --auto --offline`. |
 
 ---
 
