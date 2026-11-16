@@ -53,8 +53,8 @@ flowchart LR
 | Preprocessor | Cleans data, handles missing values, does chronological split | Zain |
 | SentimentAnalyzer | Preprocesses headline text, scores sentiment, aggregates by date | Siraj |
 | FeatureBuilder | Adds returns and moving averages, merges price and sentiment features | Zain / Siraj |
-| StockPredictor | Trains and predicts with scikit-learn models, compares configurations | Ali |
-| ModelEvaluator | Calculates MAE, RMSE, R², and plots results | Nabeel |
+| StockPredictor | Trains and predicts with scikit-learn models, compares configurations, single split or walk-forward `TimeSeriesSplit` | Ali |
+| ModelEvaluator | Calculates MAE, RMSE, R², direction accuracy, binomial and paired significance tests, and plots results | Nabeel |
 
 ## 3. Class Diagram
 

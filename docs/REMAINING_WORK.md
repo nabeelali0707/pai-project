@@ -9,6 +9,18 @@ pass. What remains splits into two phases.
   run and explain the project.
 - **Phase 2:** make the "does sentiment help?" result more reliable and prepare the demo.
 
+## Status on 16 Nov 2026
+
+Done in the repository: 1.3 (menu symbol + custom CSV), 1.4 (AAPL, MSFT and NVDA cached and
+runnable offline), 1.5 (multi-stock results table in the README), 1.6 (all caches rebuilt from
+the complete headline files), 2.1 (walk-forward mean ± std), 2.2 (binomial and paired tests),
+2.3 (tuning on training years only), 2.4 (sentiment ablation), 2.5 (GitHub Actions CI), and
+the README/results refresh from 2.7.
+
+Still open: 1.2 (verify Python 3.10–3.12 and pandas 2.x on every member's laptop — only
+Python 3.14.3 + pandas 3.0.1 is verified here), 1.7 (proposal admin), 2.6 (demo rehearsal and
+slides), and tagging the `v1.0` release.
+
 ## Already done
 
 | Proposal item | Where |

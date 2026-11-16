@@ -49,7 +49,7 @@ RANDOM_STATE = 42
 SEARCHES: dict[str, tuple[object, dict]] = {
     "Ridge Regression": (
         Ridge(),
-        {"reg__alpha": [0.1, 1.0, 10.0, 100.0, 1000.0]},
+        {"reg__alpha": [0.1, 1.0, 10.0, 100.0, 1000.0, 3000.0, 10000.0, 30000.0]},
     ),
     "Random Forest": (
         RandomForestRegressor(n_estimators=300, random_state=RANDOM_STATE, n_jobs=-1),

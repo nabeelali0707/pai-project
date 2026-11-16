@@ -232,15 +232,20 @@ class RidgePredictor(StockPredictor):
     name = "Ridge Regression"
 
     def default_estimator(self):
-        return Ridge(alpha=10.0)
+        # Tuned with scripts/tune_models.py on the training years only. CV keeps
+        # improving up to the grid edge (30,000) because the honest forecast is
+        # almost no change; 1,000 is the strongest value that still responds to
+        # the features instead of collapsing to the naive forecast.
+        return Ridge(alpha=1000.0)
 
 
 class RandomForestPredictor(StockPredictor):
     name = "Random Forest"
 
     def default_estimator(self):
-        # Shallow trees + large leaves: daily returns are noisy, deep trees overfit.
-        return RandomForestRegressor(n_estimators=300, max_depth=5, min_samples_leaf=25,
+        # Tuned depth/leaf (scripts/tune_models.py). Daily returns are noisy, so
+        # shallow trees with large leaves generalise better than deep ones.
+        return RandomForestRegressor(n_estimators=300, max_depth=3, min_samples_leaf=25,
                                      random_state=RANDOM_STATE, n_jobs=-1)
 
 
@@ -248,8 +253,10 @@ class GradientBoostingPredictor(StockPredictor):
     name = "Gradient Boosting"
 
     def default_estimator(self):
-        return GradientBoostingRegressor(n_estimators=200, max_depth=2, learning_rate=0.03,
-                                         subsample=0.8, random_state=RANDOM_STATE)
+        # Tuned depth/leaf: single-split stumps win on the training folds.
+        return GradientBoostingRegressor(n_estimators=200, max_depth=1, min_samples_leaf=5,
+                                         learning_rate=0.03, subsample=0.8,
+                                         random_state=RANDOM_STATE)
 
 
 MODEL_FACTORIES: dict[str, callable] = {

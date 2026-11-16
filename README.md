@@ -17,8 +17,9 @@ improve accuracy compared with a price-only model.
 
 > Educational project only. Nothing here is investment advice.
 
-**Status:** the full pipeline works. The remaining tasks are split into two phases in
-[docs/REMAINING_WORK.md](docs/REMAINING_WORK.md).
+**Status:** the full pipeline works, now with walk-forward evaluation, significance tests,
+hyperparameter tuning, a sentiment ablation, three cached tickers and CI. The remaining
+administrative tasks are tracked in [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md).
 
 ---
 
@@ -32,11 +33,12 @@ pip install -r requirements.txt
 python main.py                    # interactive menu
 python main.py --auto             # run every step once
 python main.py --auto --offline   # same, without any network access
-python -m pytest                  # 20 unit tests
+python -m pytest                  # 24 unit tests
 ```
 
 Options: `--symbol AAPL`, `--offline`, `--auto`, `--show` (open chart windows),
-`--test-size 0.2`, `--relevant-only` (score only headlines that mention the company).
+`--test-size 0.2`, `--relevant-only` (score only headlines that mention the company),
+`--walk-forward 5` (evaluate with 5 expanding time-series folds instead of one split).
 
 ### Menu
 
@@ -98,24 +100,26 @@ Full diagrams (architecture, class diagram, workflow): [docs/ARCHITECTURE.md](do
 
 | Data | Source | Cached file |
 |---|---|---|
-| AAPL daily prices, 2015-01-02 to 2024-01-30 (2,284 days) | Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance) | `data/cache/AAPL_prices.csv` + `AAPL_prices_meta.json` |
-| 14,400 AAPL news items, 2015-01-01 to 2024-01-30 (news on 97% of trading days) | [Tech-Stocks-News](https://huggingface.co/datasets/David-Chew-HL/Tech-Stocks-News) on Hugging Face (Apache-2.0; originally from the Alpaca Markets news API) | `data/cache/AAPL_headlines.csv.gz` (1.3 MB) |
-| Daily sentiment scores (generated) | step 3 | `data/cache/AAPL_sentiment_daily.csv`, `AAPL_sentiment_summary.json` |
+| AAPL, MSFT and NVDA daily prices, 2015-01-02 to 2024-01-30 (2,284 days each) | Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance) | `<SYM>_prices.csv` + `<SYM>_prices_meta.json` |
+| 19,978 AAPL · 9,705 MSFT · 5,711 NVDA news items, 2015-01-01 to 2024-01-30 (AAPL news on 97.6% of trading days) | [Tech-Stocks-News](https://huggingface.co/datasets/David-Chew-HL/Tech-Stocks-News) on Hugging Face (Apache-2.0; originally from the Alpaca Markets news API) | `<SYM>_headlines.csv.gz` (0.5–1.8 MB) |
+| Daily sentiment scores (generated) | step 3 | `<SYM>_sentiment_daily.csv`, `<SYM>_sentiment_summary.json` |
 
 **Offline operation.** The caches are committed to the repository, so `python main.py --offline`
 works with no internet at all. Without `--offline`, the program tries Yahoo Finance first,
 refreshes the cache on success, and silently falls back to the cache on failure.
 
-**About the headline cache.** The raw dataset file for AAPL is 176 MB because it stores article
+**About the headline cache.** Each raw dataset file is 84–176 MB because it stores article
 summaries in several chronological sweeps over 2015–2024. `scripts/fetch_headlines.py` keeps
-only the date and the first ~300 characters (the headline-like opening) of each item. The
-committed cache uses only the **first complete sweep** (`--first-pass`), which already covers
-the whole period. To rebuild it, or to use the full file or another ticker
-(AMZN, TSLA, GOOG, MSFT, META, BABA, NVDA):
+only the date and the first ~300 characters (the headline-like opening) of each item, then
+de-duplicates. The committed caches use the **complete file** for all three tickers, which
+raised MSFT from 2,650 to 9,705 items and NVDA from 1,418 to 5,711. `--first-pass` remains
+for slow connections only. To rebuild a cache, or to add another ticker
+(AMZN, TSLA, GOOG, META, BABA):
 
 ```bash
-python scripts/fetch_headlines.py AAPL              # full file
-python scripts/fetch_headlines.py AAPL --first-pass # what the repo uses
+python scripts/fetch_headlines.py AAPL              # full file (what the repo uses)
+python scripts/fetch_headlines.py AAPL --first-pass # fast subset, for slow connections
+python scripts/run_all_stocks.py                    # results for every cached ticker
 ```
 
 Data is used for academic purposes only. Yahoo Finance data is subject to Yahoo's terms of
@@ -124,45 +128,108 @@ publishers.
 
 ---
 
-## Results (AAPL, test period 2022-04-08 to 2024-01-29, 453 trading days)
+## Results (AAPL, walk-forward, 5 expanding folds)
 
-Training period: 2015-01-30 to 2022-04-07 (1,811 days). These numbers are reproduced by `python main.py --auto --offline`.
+Training years: 2015-01-30 to 2022-04-07 (1,811 days); test years: 2022-04-08 to 2024-01-29
+(453 days). With `--walk-forward 5`, scikit-learn `TimeSeriesSplit` re-fits every model on the
+past and scores the next block, so each number is **mean ± standard deviation across folds**
+over 1,880 scored days. Reproduce with `python main.py --auto --offline --walk-forward 5`.
 
 | Model | Features | MAE ($) | RMSE ($) | R² | Direction accuracy |
 |---|---|---|---|---|---|
-| Gradient Boosting | price only | 2.115 | **2.808** | 0.9782 | 49.7% |
-| Gradient Boosting | price + sentiment | 2.115 | 2.813 | 0.9781 | 50.6% |
-| Naive (tomorrow = today) | – | **2.107** | 2.813 | 0.9781 | – |
-| Ridge Regression | price only | 2.123 | 2.825 | 0.9780 | 51.2% |
-| Ridge Regression | price + sentiment | 2.123 | 2.826 | 0.9779 | **53.2%** |
-| Linear Regression | price only | 2.128 | 2.827 | 0.9779 | 49.2% |
-| Linear Regression | price + sentiment | 2.127 | 2.829 | 0.9779 | 50.6% |
-| Random Forest | price only | 2.141 | 2.828 | 0.9779 | 50.1% |
-| Random Forest | price + sentiment | 2.144 | 2.833 | 0.9778 | 51.4% |
+| Naive (tomorrow = today) | – | 1.286 ± 0.803 | **1.765 ± 1.070** | 0.9826 ± 0.0108 | – |
+| Random Forest | price only | 1.291 ± 0.800 | 1.768 ± 1.063 | 0.9825 ± 0.0109 | 51.1% ± 4.6 |
+| Random Forest | price + sentiment | 1.290 ± 0.801 | 1.768 ± 1.064 | 0.9825 ± 0.0109 | 50.9% ± 3.7 |
+| Gradient Boosting | price only | 1.292 ± 0.798 | 1.769 ± 1.059 | 0.9823 ± 0.0111 | 51.1% ± 2.9 |
+| Ridge Regression | price only | 1.290 ± 0.806 | 1.770 ± 1.073 | 0.9825 ± 0.0109 | 51.0% ± 4.7 |
+| Ridge Regression | price + sentiment | 1.289 ± 0.806 | 1.770 ± 1.072 | 0.9825 ± 0.0109 | **51.5% ± 2.5** |
+| Gradient Boosting | price + sentiment | 1.292 ± 0.797 | 1.770 ± 1.059 | 0.9823 ± 0.0111 | 51.7% ± 2.3 |
+| Linear Regression | price only | 1.302 ± 0.806 | 1.785 ± 1.076 | 0.9823 ± 0.0109 | 50.3% ± 3.4 |
+| Linear Regression | price + sentiment | 1.305 ± 0.797 | 1.791 ± 1.067 | 0.9820 ± 0.0109 | 50.8% ± 2.3 |
+
+The single-split numbers are still one `python main.py --auto --offline` away (for example
+Gradient Boosting price-only RMSE $2.818 on the 453 test days), but the fold spread above is
+the honest uncertainty.
 
 ![Model comparison](docs/figures/model_comparison.png)
 ![Actual vs predicted](docs/figures/actual_vs_predicted.png)
 
 ### Does sentiment improve accuracy?
 
-* **Direction:** adding sentiment raised up/down accuracy for **all 4 models** (by 2.0 points on
-  average; best was Ridge at 53.2% against 51.2%). However, one standard error on 453 test days
-  is about 2.3 points, so this is a hint, not a statistically significant result.
-* **Price error:** sentiment did **not** lower RMSE. The change was +0.06% to +0.17%,
-  well below one cent.
-* **Against the naive forecast:** no model is meaningfully better than "tomorrow's close =
-  today's close". The best model's RMSE is only $0.005 lower. The high R² of about 0.98 comes
-  from the fact that tomorrow's price is close to today's. It does not mean the model is skilled.
-  The naive row is the benchmark that matters.
+* **Direction:** sentiment raised up/down accuracy for **3 of 4 models** in the walk-forward
+  run (mean +0.3 points) and for 3 of 4 in the single split (mean +0.2 points). The best
+  enhanced model reaches 51.5–52.1%, but the binomial test against a coin flip gives
+  **p = 0.40** (Ridge, single split) and **p = 0.45** (Random Forest, walk-forward). Neither
+  is close to significant.
+* **Price error:** the paired t-test on daily absolute errors finds no difference between
+  price-only and sentiment models (mean difference $0.0003, **p = 0.76** in walk-forward;
+  p = 0.73 in the single split). In the walk-forward run sentiment lowered RMSE for 0 of 4
+  models (mean change +0.10%); in the single split it lowered it for 2 of 4 (+0.03% mean).
+  Every difference is well below one cent.
+* **Against the naive forecast:** no model beats "tomorrow's close = today's close" on RMSE
+  (best model margin −$0.002 in walk-forward, −$0.005 in the single split). The high R² of
+  about 0.98 comes from tomorrow's price being close to today's, not from skill. The naive
+  row is the benchmark that matters.
 * Correlations between daily sentiment features and the next-day return are tiny
-  (|r| ≤ 0.04), which matches the efficient-market view that public news is priced in quickly.
-* With `--relevant-only` (only the 7,620 headlines that mention Apple), the results stay within
-  the same noise band.
+  (|r| ≤ 0.04), matching the efficient-market view that public news is priced in quickly.
+* The fold standard deviations are wide (RMSE ±$1.07) because the folds cover different
+  price levels and volatility regimes, which is why the mean ± std table is the honest one.
+* With `--relevant-only` (only headlines that mention Apple), the results stay inside the
+  same noise band.
 
-**Conclusion:** the full pipeline works. Combining price features with headline sentiment
-gives a small, consistent but not significant gain in direction accuracy, and no gain in
-price error. This is the honest, expected outcome for daily stock prediction from
-public headlines.
+### Does sentiment help on other stocks?
+
+`python scripts/run_all_stocks.py` runs the same single-split pipeline for every cached
+ticker (`outputs/multi_stock_summary.csv`):
+
+| Stock | Test days | Naive RMSE ($) | Best price-only model | RMSE ($) | Direction | Best +sentiment model | RMSE ($) | Direction | RMSE change | Direction change |
+|---|---|---|---|---|---|---|---|---|---|---|
+| AAPL | 453 | 2.813 | Gradient Boosting | 2.818 | 51.7% | Ridge Regression | 2.818 | 52.1% | +0.02% | +0.4 pts |
+| MSFT | 453 | 5.194 | Ridge Regression | 5.243 | 49.4% | Ridge Regression | 5.240 | 50.6% | −0.07% | +1.1 pts |
+| NVDA | 452 | 0.903 | Gradient Boosting | 0.897 | 56.3% | Random Forest | 0.897 | 51.2% | −0.01% | −5.1 pts |
+
+Sentiment changes RMSE by at most 0.07% on every ticker and beats the naive forecast for
+none of them. Direction moves by −5.1 to +1.1 points: it helps on two tickers and hurts on
+one, with no consistent sign. NVDA's 56.3% price-only direction accuracy is the most
+interesting artefact, and adding sentiment does not preserve it.
+
+### Sentiment ablation
+
+`python scripts/sentiment_ablation.py` swaps the scoring engine (AAPL, single split,
+`outputs/sentiment_ablation.csv`):
+
+| Sentiment method | Engine | Best enhanced model | RMSE ($) | Direction | RMSE change vs price only | Direction change |
+|---|---|---|---|---|---|---|
+| VADER + finance lexicon | `vader+finance` | Ridge Regression | 2.818 | 52.1% | +0.02% | +0.4 pts |
+| Plain VADER | `vader` | Gradient Boosting | 2.819 | 51.9% | +0.07% | +0.2 pts |
+| Built-in lexicon | `lexicon` | Ridge Regression | 2.816 | 50.8% | −0.04% | −0.9 pts |
+
+All three engines land within $0.003 RMSE and about one point of direction accuracy, so the
+finance words are **not** what produces the result. The default VADER + finance lexicon is
+kept because it makes the market terms (downgrade, bullish, plunge) explicit for the NLP
+part of the project.
+
+### Hyperparameter tuning
+
+`python scripts/tune_models.py` searches only the chronological training years
+(2015-01-30 to 2022-04-07) with 5 expanding `TimeSeriesSplit` folds and
+`neg_root_mean_squared_error` scoring (`outputs/tuning_results.csv`):
+
+| Model | Search range | AAPL choice | MSFT choice |
+|---|---|---|---|
+| Ridge | alpha 0.1 … 30,000 | 30,000 (grid edge) → default 1,000 | 1,000 |
+| Random Forest | max_depth 3/5/8/None, min_samples_leaf 5/15/25/50 | depth 3, leaf 25 | depth 3, leaf 5 |
+| Gradient Boosting | max_depth 1/2/3, min_samples_leaf 5/15/25 | depth 1, leaf 5 | depth 1, leaf 5 |
+
+Cross-validation keeps improving as Ridge shrinks towards "no change", which is itself the
+main finding; the shipped default (alpha 1,000) is the strongest value that still responds
+to the features. Tree settings are the tuned values from these runs. The test period was
+never used for tuning.
+
+**Conclusion:** the full pipeline works and is evaluated honestly. Combining price features
+with headline sentiment gives a small, inconsistent and statistically insignificant change
+in direction accuracy, and no gain in price error, on AAPL, MSFT and NVDA. That is the
+expected outcome for daily stock prediction from public headlines.
 
 <p float="left">
   <img src="docs/figures/sentiment_distribution.png" width="100%">
@@ -185,7 +252,7 @@ More figures: [price history](docs/figures/price_history.png),
 | 07 NumPy | vectorised returns, all metrics, `searchsorted` for trading-day alignment |
 | 08 Pandas | loading, cleaning, `groupby` per date, rolling windows, joins |
 | 09 Matplotlib/Seaborn | price history, return and sentiment distributions, correlation heatmap, actual vs predicted, model comparison |
-| 10–11 Machine learning | scikit-learn pipelines, four regressors and a naive baseline, MAE/RMSE/R² comparison |
+| 10–11 Machine learning | scikit-learn pipelines, four regressors and a naive baseline, walk-forward `TimeSeriesSplit`, grid-search tuning, MAE/RMSE/R² comparison |
 | 12 NLP (Track A) | text cleaning, lexicon-based sentiment (VADER + finance terms), negation handling, relevance filtering |
 | 14 Documentation, ethics | docstrings, this README, tests, limitations below |
 
@@ -196,7 +263,9 @@ More figures: [price history](docs/figures/price_history.png),
 * The news timestamps are dates only, so news published after the market close counts toward
   that same day's features. Since the target is the *next* day's close, this does not leak the target.
 * Lexicon sentiment misses context and sarcasm, and some items tagged AAPL are about other companies.
-* Results cover one stock and one period. Other tickers or periods may differ.
+* Results cover three stocks and one period. Other tickers or periods may differ.
+* Walk-forward fold metrics have wide standard deviations because each fold covers a
+  different price level and volatility regime; compare mean ± std, not single numbers.
 
 ## Project structure
 
@@ -204,7 +273,8 @@ More figures: [price history](docs/figures/price_history.png),
 pai-project/
 ├── data/cache/        offline price, headline and sentiment caches (CSV / CSV.GZ / JSON)
 ├── docs/              ARCHITECTURE.md and figures used in this README
-├── scripts/           fetch_headlines.py (one-time dataset download + trim)
+├── scripts/           fetch_headlines.py (dataset download + trim), run_all_stocks.py,
+│                      tune_models.py, sentiment_ablation.py
 ├── src/               data_loader, preprocessor, sentiment, features, predictor, evaluator
 ├── tests/             pytest unit tests
 ├── main.py            menu-driven entry point

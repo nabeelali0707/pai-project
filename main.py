@@ -314,13 +314,13 @@ class App:
                     sig = ModelEvaluator(res.actual, res.predictions[key_]).direction_significance(res.previous)
                     print(f"   - {row['model']} ({label}): direction {sig['accuracy']:.1%} "
                           f"({sig['correct']}/{sig['n']} days), binomial p = {sig['p_value']:.3f} vs 50%.")
-                paired_key = (best_enh["model"], BASELINE)
-                if baseline_key == paired_key:
-                    pair = ModelEvaluator.paired_error_test(res.actual, res.predictions[paired_key],
-                                                            res.predictions[(best_enh["model"], ENHANCED)])
-                    print(f"   - Paired absolute errors, {best_enh['model']}: ${pair['mean_abs_error_a']:.4f} "
-                          f"price only vs ${pair['mean_abs_error_b']:.4f} + sentiment, "
-                          f"mean difference ${pair['mean_difference']:+.4f}, p = {pair['p_value']:.3f}.")
+                pair_model = best_enh["model"]  # same model, so only the feature set differs
+                pair = ModelEvaluator.paired_error_test(res.actual,
+                                                        res.predictions[(pair_model, BASELINE)],
+                                                        res.predictions[(pair_model, ENHANCED)])
+                print(f"   - Paired absolute errors, {pair_model}: ${pair['mean_abs_error_a']:.4f} "
+                      f"price only vs ${pair['mean_abs_error_b']:.4f} + sentiment, "
+                      f"mean difference ${pair['mean_difference']:+.4f}, p = {pair['p_value']:.3f}.")
 
         key = (best["model"], best["feature_set"])
         model = res.models[key]

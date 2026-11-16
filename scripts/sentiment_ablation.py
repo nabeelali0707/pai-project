@@ -78,17 +78,6 @@ def run_variant(prices: pd.DataFrame, headlines: pd.DataFrame, symbol: str, para
     }
 
 
-def to_markdown(frame: pd.DataFrame) -> str:
-    header = ("| Sentiment method | Engine | Best enhanced model | RMSE ($) | Direction | "
-              "Δ RMSE vs price only | Δ Direction |")
-    lines = [header, "|" + "---|" * 7]
-    for r in frame.itertuples():
-        lines.append(f"| {r.label} | `{r.variant}` | {r.best_model} | {r.RMSE:.3f} | "
-                     f"{r.DirAcc_:.1f}% | {getattr(r, '_8'):+.2f}% | "
-                     f"{getattr(r, '_9'):+.1f} pts |")
-    return "\n".join(lines)
-
-
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--symbol", default="AAPL", help="ticker to analyse (default AAPL)")
@@ -114,15 +103,15 @@ def main(argv=None) -> int:
     csv_path = os.path.join(OUTPUT_DIR, "sentiment_ablation.csv")
     summary.to_csv(csv_path, index=False, float_format="%.6f")
 
-    view = summary[["label", "variant", "best_model", "RMSE", "DirAcc_%",
-                    "RMSE_change_%", "DirAcc_change_pts"]]
+    view = summary.rename(columns={"label": "sentiment_method", "DirAcc_%": "direction",
+                                   "RMSE_change_%": "rmse_change",
+                                   "DirAcc_change_pts": "direction_change"})
     print("\n| Sentiment method | Engine | Best enhanced model | RMSE ($) | Direction | "
-          "Δ RMSE vs price only | Δ Direction |")
+          "RMSE change vs price only | Direction change |")
     print("|" + "---|" * 7)
     for r in view.itertuples(index=False):
-        print(f"| {r.label} | `{r.variant}` | {r.best_model} | {r.RMSE:.3f} | "
-              f"{getattr(r, '_4'):.1f}% | {getattr(r, '_5'):+.2f}% | "
-              f"{getattr(r, '_6'):+.1f} pts |")
+        print(f"| {r.sentiment_method} | `{r.variant}` | {r.best_model} | {r.RMSE:.3f} | "
+              f"{r.direction:.1f}% | {r.rmse_change:+.2f}% | {r.direction_change:+.1f} pts |")
     print(f"\nSaved {os.path.relpath(csv_path, ROOT)}")
     return 0
 
