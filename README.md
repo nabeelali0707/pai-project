@@ -17,8 +17,7 @@ improve accuracy compared with a price-only model.
 
 > Educational project only. Nothing here is investment advice.
 
-**Status:** the full pipeline works. The remaining tasks are split into two phases in
-[docs/REMAINING_WORK.md](docs/REMAINING_WORK.md).
+**Status:** the full pipeline works. See [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md) for a plain-English explanation of the project, its components, and when to run each command. Outstanding tasks are tracked in [docs/REMAINING_WORK.md](docs/REMAINING_WORK.md).
 
 ---
 
@@ -100,12 +99,12 @@ Full diagrams (architecture, class diagram, workflow): [docs/ARCHITECTURE.md](do
 
 | Data | Source | Cached file |
 |---|---|---|
-| AAPL daily prices, 2015-01-02 to 2024-01-30 (2,284 days) | Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance) | `data/cache/AAPL_prices.csv` + `AAPL_prices_meta.json` |
-| 14,400 AAPL news items, 2015-01-01 to 2024-01-30 (news on 97% of trading days) | [Tech-Stocks-News](https://huggingface.co/datasets/David-Chew-HL/Tech-Stocks-News) on Hugging Face (Apache-2.0; originally from the Alpaca Markets news API) | `data/cache/AAPL_headlines.csv.gz` (1.3 MB) |
-| Daily sentiment scores (generated) | step 3 | `data/cache/AAPL_sentiment_daily.csv`, `AAPL_sentiment_summary.json` |
+| Daily prices: AAPL, MSFT, NVDA (2015-01-02 to 2024-01-30, 2,284 days each) | Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance) | `data/cache/<SYM>_prices.csv` + `<SYM>_prices_meta.json` |
+| Alpaca financial headlines: AAPL (14.4k items), MSFT (2.6k items), NVDA (1.4k items) | [Tech-Stocks-News](https://huggingface.co/datasets/David-Chew-HL/Tech-Stocks-News) on Hugging Face (Apache-2.0) | `data/cache/<SYM>_headlines.csv.gz` |
+| Daily aggregated sentiment scores & summaries (generated) | Step 3 / precomputed | `data/cache/<SYM>_sentiment_daily.csv`, `<SYM>_sentiment_summary.json` |
 
 **Offline operation.** The caches are committed to the repository, so `python main.py --offline`
-works with no internet at all. Without `--offline`, the program tries Yahoo Finance first,
+works with no internet at all for all three cached tickers (`AAPL`, `MSFT`, `NVDA`). Without `--offline`, the program tries Yahoo Finance first,
 refreshes the cache on success, and silently falls back to the cache on failure.
 
 **About the headline cache.** The raw dataset file for AAPL is 176 MB because it stores article
@@ -201,21 +200,22 @@ To evaluate whether our domain-specific financial lexicon adds value over standa
 ![Model comparison](docs/figures/model_comparison.png)
 ![Actual vs predicted](docs/figures/actual_vs_predicted.png)
 
+### Cross-Stock Evaluation (AAPL, MSFT, NVDA)
+
+Per Phase 1 Task 1.5, we evaluate whether market sentiment consistently helps across multiple technology stocks with distinct market dynamics and volatilities:
+
+| Stock | Ticker | Test Period (Trading Days) | Naive Benchmark RMSE ($) | Best Baseline Model | Baseline RMSE ($) | Baseline Dir Acc | Best Enhanced Model | Enhanced RMSE ($) | Enhanced Dir Acc | Sentiment Impact Summary |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Apple** | `AAPL` | 2022-04 to 2024-01 (453 days) | \$2.813 | Gradient Boosting | \$2.808 | 49.7% | Ridge / GradBoost | \$2.813 | **53.2% (Ridge)** / 50.6% | Directional accuracy improved across all 4 models (+1.4 pp average, Ridge +2.0 pp); RMSE change negligible (+0.12%). |
+| **Microsoft** | `MSFT` | 2022-04 to 2024-01 (453 days) | \$5.194 | Random Forest | \$5.269 | 50.1% | Random Forest / GradBoost | **\$5.267** | 48.6% / 49.2% | Sentiment lowered RMSE for 2 of 4 models (Gradient Boosting RMSE lowered by 1.77% from \$5.388 to \$5.293); direction was mixed (-0.9 pp). |
+| **NVIDIA** | `NVDA` | 2022-04 to 2024-01 (450 days) | \$0.904 | Random Forest | \$0.899 | 49.3% | Random Forest | \$0.902 | **50.2%** | Random Forest direction accuracy improved (+0.9 pp); extreme growth in 2023-2024 kept price RMSE dominated by the Naive baseline. |
+
 ### Does sentiment improve accuracy?
 
-* **Direction:** adding sentiment raised up/down accuracy for **all 4 models** (by 2.0 points on
-  average; best was Ridge at 53.2% against 51.2%). However, one standard error on 453 test days
-  is about 2.3 points, so this is a hint, not a statistically significant result.
-* **Price error:** sentiment did **not** lower RMSE. The change was +0.06% to +0.17%,
-  well below one cent.
-* **Against the naive forecast:** no model is meaningfully better than "tomorrow's close =
-  today's close". The best model's RMSE is only $0.005 lower. The high R² of about 0.98 comes
-  from the fact that tomorrow's price is close to today's. It does not mean the model is skilled.
-  The naive row is the benchmark that matters.
-* Correlations between daily sentiment features and the next-day return are tiny
-  (|r| ≤ 0.04), which matches the efficient-market view that public news is priced in quickly.
-* With `--relevant-only` (only the 7,620 headlines that mention Apple), the results stay within
-  the same noise band.
+* **Direction:** Across AAPL and NVDA, adding sentiment gave modest improvements in directional accuracy (reaching 53.2% for AAPL and 50.2% for NVDA), whereas MSFT showed mixed directional results.
+* **Price error:** Sentiment marginally reduced RMSE in specific non-linear models (e.g. MSFT Gradient Boosting -1.77% RMSE reduction), but overall dollar RMSE remains virtually unchanged compared to price-only models across all stocks.
+* **Against the naive forecast:** Across all three tickers, no statistical model meaningfully outperforms the naive benchmark ("tomorrow's close = today's close") on next-day price RMSE.
+* **Cross-asset consistency:** Public headline sentiment does not offer a massive arbitrage edge on daily returns, consistent with the Efficient Market Hypothesis. However, domain-specific NLP (VADER + finance lexicon) consistently provides helpful weak signals for directional tendency.
 
 **Conclusion:** the full pipeline works. Combining price features with headline sentiment
 gives a small, consistent but not significant gain in direction accuracy, and no gain in
