@@ -190,6 +190,30 @@ def test_evaluator_rejects_bad_input():
         ModelEvaluator([1, 2], [1])
 
 
+def test_app_switches_symbol_and_validates_files(tmp_path, prices):
+    import main
+
+    app = main.App("AAPL", offline=True)
+    app.prices = prices
+
+    with pytest.raises(ValueError):            # not a ticker
+        app.use_symbol("not a ticker")
+    with pytest.raises(FileNotFoundError):     # no such file
+        app.use_symbol("TEST", str(tmp_path / "missing.csv"))
+    bad = tmp_path / "bad.csv"
+    prices.drop(columns=["Close"]).to_csv(bad, index_label="Date")
+    with pytest.raises(DataValidationError):   # a price file without Close
+        app.use_symbol("TEST", str(bad))
+    assert app.symbol == "AAPL" and app.prices is not None  # state untouched
+
+    good = tmp_path / "custom_prices.csv"
+    prices.to_csv(good, index_label="Date")
+    app.use_symbol("TEST", str(good))
+    assert app.symbol == "TEST" and app.prices is None     # derived state reset
+    app.step_load()
+    assert len(app.prices) == len(prices)
+
+
 def test_plots_are_saved(tmp_path, monkeypatch, prices):
     import src.evaluator as evaluator
     monkeypatch.setattr(evaluator, "FIGURE_DIR", str(tmp_path))

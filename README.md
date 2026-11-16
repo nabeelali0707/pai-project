@@ -48,10 +48,16 @@ Options: `--symbol AAPL`, `--offline`, `--auto`, `--show` (open chart windows),
 5. View metrics and charts
 6. Predict next-day closing price
 7. Run everything (1-6)
+8. Change stock symbol
+9. Load a custom CSV file
 0. Exit
 ```
 
 Every option can be picked directly. Missing earlier steps run automatically.
+Option 8 switches between the cached tickers (or downloads a new one when online);
+option 9 loads your own price CSV (a `Date` column plus Open/High/Low/Close/Volume)
+and/or headline CSV (`date`, `headline`). A bad path or a missing column prints an
+error and keeps the current data loaded.
 Charts are saved to `outputs/figures/`, and the results tables to `outputs/*.csv`.
 
 ---

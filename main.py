@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 
 import pandas as pd
@@ -36,6 +37,14 @@ def heading(text: str) -> None:
     print("\n" + "=" * 72 + f"\n  {text}\n" + "=" * 72)
 
 
+def short_path(path: str) -> str:
+    """Project-relative path for display (a custom file may sit on another drive)."""
+    try:
+        return os.path.relpath(path, ROOT)
+    except ValueError:
+        return path
+
+
 class App:
     """Holds the pipeline state between menu choices.
 
@@ -52,6 +61,8 @@ class App:
         self.test_size = test_size
         self.relevant_only = relevant_only
 
+        self.price_path: str | None = None
+        self.headline_path: str | None = None
         self.prices: pd.DataFrame | None = None
         self.clean_prices: pd.DataFrame | None = None
         self.headlines: pd.DataFrame | None = None
@@ -67,15 +78,85 @@ class App:
     def sentiment_cache_path(self) -> str:
         return os.path.join(self.loader.cache_dir, f"{self.symbol}_sentiment_daily.csv")
 
+    # ------------------------------------------------------ stock and files
+    def cached_symbols(self) -> list[str]:
+        """Tickers that have a price file in the cache folder."""
+        cache_dir = self.loader.cache_dir
+        if not os.path.isdir(cache_dir):
+            return []
+        suffix = "_prices.csv"
+        return sorted(f[: -len(suffix)].upper() for f in os.listdir(cache_dir)
+                      if f.lower().endswith(suffix))
+
+    def use_symbol(self, symbol: str, price_path: str | None = None,
+                   headline_path: str | None = None) -> None:
+        """Switch to another ticker, optionally with custom CSV files.
+
+        Custom files are validated before anything is switched, so a bad path
+        or a missing column leaves the current data untouched.
+        """
+        symbol = (symbol or "").upper().strip()
+        if not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", symbol):
+            raise ValueError(f"'{symbol}' is not a valid ticker symbol (letters, digits, '.' or '-').")
+        if not price_path and self.offline and symbol not in self.cached_symbols():
+            available = ", ".join(self.cached_symbols()) or "none"
+            raise ValueError(f"No cached prices for {symbol} while offline. "
+                             f"Available tickers: {available}.")
+
+        probe = DataLoader(symbol)
+        if price_path:
+            probe.load_csv(price_path)           # validates the Date index and OHLCV columns
+        if headline_path:
+            probe.load_headlines(headline_path)  # validates the date/headline columns
+
+        self.loader = DataLoader(symbol)
+        self.symbol = self.loader.stock_symbol
+        self.price_path, self.headline_path = price_path, headline_path
+        self._reset_state()
+        origin = short_path(price_path) if price_path else "cache"
+        extra = f", headlines {short_path(headline_path)}" if headline_path else ""
+        print(f"   Now using {self.symbol} (prices: {origin}{extra}). Pick option 1 to load the data.")
+
+    def _reset_state(self) -> None:
+        """Forget every derived table after the data source changes."""
+        self.prices = self.clean_prices = self.headlines = None
+        self.analyzer = self.daily_sentiment = self.builder = None
+        self.train_df = self.test_df = self.comparison = None
+        self.sentiment_attempted = False
+
+    def step_choose_symbol(self) -> None:
+        heading("8. Change stock symbol")
+        cached = self.cached_symbols()
+        print(f"   Cached tickers: {', '.join(cached) if cached else 'none'}"
+              f"{' (offline: only these work)' if self.offline else ' (any other ticker is downloaded)'}")
+        symbol = input(f"   New ticker symbol (blank keeps {self.symbol}): ").strip()
+        if not symbol:
+            print(f"   Keeping {self.symbol}.")
+            return
+        self.use_symbol(symbol)
+
+    def step_load_custom(self) -> None:
+        heading("9. Load a custom CSV file")
+        print("   Price CSV:    a 'Date' column plus Open, High, Low, Close, Volume.")
+        print("   Headline CSV: 'date' and 'headline' columns (plain CSV or CSV.GZ).")
+        symbol = input(f"   Ticker symbol (blank keeps {self.symbol}): ").strip() or self.symbol
+        price_path = input("   Price CSV path (blank = cached prices): ").strip() or None
+        headline_path = input("   Headline file path (blank = cached headlines): ").strip() or None
+        self.use_symbol(symbol, price_path, headline_path)
+
     # ------------------------------------------------------------- 1. load
     def step_load(self) -> None:
         heading(f"1. Load data for {self.symbol}")
-        self.prices = self.loader.load_prices(offline=self.offline)
+        if self.price_path:
+            self.prices = self.loader.load_csv(self.price_path)
+        else:
+            self.prices = self.loader.load_prices(offline=self.offline)
         p = self.prices
+        source = short_path(self.price_path) if self.price_path else self.loader.source
         print(f"   Prices:    {len(p)} trading days, {p.index.min().date()} to {p.index.max().date()} "
-              f"(source: {self.loader.source})")
+              f"(source: {source})")
         try:
-            self.headlines = self.loader.load_headlines()
+            self.headlines = self.loader.load_headlines(self.headline_path)
             h = self.headlines
             print(f"   Headlines: {len(h)} items, {h['date'].min().date()} to {h['date'].max().date()}")
         except FileNotFoundError as exc:
@@ -296,6 +377,8 @@ class App:
             "5": ("View metrics and charts", self.step_evaluate),
             "6": ("Predict next-day closing price", self.step_predict),
             "7": ("Run everything (1-6)", self.run_all),
+            "8": ("Change stock symbol", self.step_choose_symbol),
+            "9": ("Load a custom CSV file", self.step_load_custom),
             "0": ("Exit", None),
         }
         while True:
