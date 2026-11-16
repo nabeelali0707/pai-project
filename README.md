@@ -33,7 +33,7 @@ pip install -r requirements.txt
 python main.py                    # interactive menu
 python main.py --auto             # run every step once
 python main.py --auto --offline   # same, without any network access
-python -m pytest                  # 20 unit tests
+python -m pytest                  # 31 tests
 ```
 
 Options: `--symbol AAPL`, `--offline`, `--auto`, `--show` (open chart windows),
@@ -48,14 +48,17 @@ Options: `--symbol AAPL`, `--offline`, `--auto`, `--show` (open chart windows),
 4. Train and compare models
 5. View metrics and charts
 6. Predict next-day closing price
-7. Run everything (1-6)
-8. Change stock or load custom CSV files
+7. Run walk-forward validation (5 folds)
+8. Run sentiment ablation
+9. Run hyperparameter tuning
+10. Run everything (1-6)
+11. Change stock or load custom CSV files
 0. Exit
 ```
 
 Every option can be picked directly. Missing earlier steps run automatically.
 Charts are saved to `outputs/figures/`, and the results tables to `outputs/*.csv`.
-Choose menu option 8 to switch tickers or load a custom price and/or headline CSV.
+Choose menu option 11 to switch tickers or load a custom price and/or headline CSV.
 Price CSVs need a `Date` column and the OHLCV columns `Open`, `High`, `Low`,
 `Close`, and `Volume`. Headline CSVs need `date` and `headline` columns.
 
@@ -129,15 +132,71 @@ Training period: 2015-01-30 to 2022-04-07 (1,811 days). These numbers are reprod
 
 | Model | Features | MAE ($) | RMSE ($) | R² | Direction accuracy |
 |---|---|---|---|---|---|
-| Gradient Boosting | price only | 2.115 | **2.808** | 0.9782 | 49.7% |
-| Gradient Boosting | price + sentiment | 2.115 | 2.813 | 0.9781 | 50.6% |
+| Gradient Boosting | price only | 2.116 | **2.809** | 0.9782 | 49.4% |
+| Gradient Boosting | price + sentiment | 2.112 | 2.811 | 0.9782 | 52.8% |
 | Naive (tomorrow = today) | – | **2.107** | 2.813 | 0.9781 | – |
 | Ridge Regression | price only | 2.123 | 2.825 | 0.9780 | 51.2% |
 | Ridge Regression | price + sentiment | 2.123 | 2.826 | 0.9779 | **53.2%** |
-| Linear Regression | price only | 2.128 | 2.827 | 0.9779 | 49.2% |
+| Linear Regression | price only | 2.129 | 2.827 | 0.9779 | 49.2% |
 | Linear Regression | price + sentiment | 2.127 | 2.829 | 0.9779 | 50.6% |
 | Random Forest | price only | 2.141 | 2.828 | 0.9779 | 50.1% |
 | Random Forest | price + sentiment | 2.144 | 2.833 | 0.9778 | 51.4% |
+
+### Walk-Forward Validation (TimeSeriesSplit, 5 Rolling Folds)
+
+Single train/test splits are sensitive to noise and specific market regimes. To evaluate generalizability, we run 5-fold expanding window cross-validation across the dataset using `TimeSeriesSplit`:
+
+| Model | Features | MAE ($) | RMSE ($) | R² | Direction Accuracy |
+|---|---|---|---|---|---|
+| Naive (no change) | – | 1.286 ± 0.803 | **1.765 ± 1.070** | 0.9826 ± 0.0108 | – |
+| Random Forest | price + sentiment | 1.293 ± 0.802 | 1.768 ± 1.064 | 0.9824 ± 0.0109 | 51.3% ± 3.3% |
+| Random Forest | price only | 1.294 ± 0.801 | 1.770 ± 1.063 | 0.9824 ± 0.0109 | 49.6% ± 4.4% |
+| Ridge Regression | price only | 1.297 ± 0.806 | 1.777 ± 1.073 | 0.9824 ± 0.0108 | 50.5% ± 4.2% |
+| Gradient Boosting | price only | 1.296 ± 0.790 | 1.779 ± 1.054 | 0.9821 ± 0.0111 | 50.2% ± 3.2% |
+| Gradient Boosting | price + sentiment | 1.296 ± 0.791 | 1.780 ± 1.055 | 0.9821 ± 0.0111 | **51.5% ± 2.9%** |
+| Ridge Regression | price + sentiment | 1.299 ± 0.804 | 1.781 ± 1.069 | 0.9822 ± 0.0109 | 51.3% ± 1.7% |
+| Linear Regression | price only | 1.302 ± 0.806 | 1.785 ± 1.076 | 0.9823 ± 0.0109 | 50.3% ± 3.4% |
+| Linear Regression | price + sentiment | 1.306 ± 0.803 | 1.790 ± 1.071 | 0.9821 ± 0.0110 | 51.4% ± 2.2% |
+
+Across all rolling regimes, enhanced models maintain a modest directional advantage (51.3%–51.5% vs 49.6%–50.5%), while RMSE is dominated by the naive benchmark.
+
+### Statistical Significance (Hypothesis Testing)
+
+We report exact p-values for both directional predictions and daily dollar errors:
+* **Binomial Test on Direction Accuracy (against 50% coin-flip):**
+  * Baseline Gradient Boosting: 49.4% (223/451 days, $p = 0.6112$)
+  * Enhanced Gradient Boosting: 52.8% (238/451 days, $p = 0.1292$)
+  * Enhanced Ridge Regression: 53.2% (240/451 days, $p = 0.0911$)
+  * *Verdict:* The +2.0% to +3.4% directional gain is positive and consistent across models, but does not cross the $\alpha = 0.05$ threshold ($p \ge 0.05$). We cannot reject the null hypothesis of 50% random chance.
+* **Diebold–Mariano Paired Test on Daily Forecast Errors:**
+  * Squared error loss (MSE): $DM = -0.262$, $p\text{-value} = 0.7933$
+  * Absolute error loss (MAE): $DM = +0.609$, $p\text{-value} = 0.5426$
+  * *Verdict:* There is no statistically significant difference in prediction error between price-only and sentiment-enhanced models ($p \ge 0.05$).
+
+### Hyperparameter Tuning (Training Period Only)
+
+Per Phase 2 Task 2.3, models were tuned using 5-fold `TimeSeriesSplit` strictly on training data (2015–2022). Test data (2022–2024) remained untouched:
+
+| Model | Hyperparameter | Search Range | Selected Setting | Validation RMSE |
+|---|---|---|---|---|
+| Ridge Regression | `alpha` | `[0.01, 0.1, 1.0, 10.0, 25.0, 50.0, 100.0, 200.0]` | `alpha = 10.0` | \$1.385 |
+| Random Forest | `max_depth`, `min_samples_leaf` | Depth `[3, 5, 8]`, Leaves `[15, 25, 50]` | `depth = 5, leaf = 25` | \$1.381 |
+| Gradient Boosting | `max_depth`, `min_samples_leaf`, `learning_rate` | Depth `[2, 3, 4]`, Leaves `[10, 25, 50]`, LR `[0.02, 0.03, 0.05]` | `depth = 2, leaf = 10, lr = 0.03` | \$1.380 |
+
+### Sentiment Ablation (Finance Lexicon vs Plain VADER)
+
+To evaluate whether our domain-specific financial lexicon adds value over standard VADER:
+
+| Configuration | Model | MAE ($) | RMSE ($) | R² | Direction Accuracy |
+|---|---|---|---|---|---|
+| Price only (no sentiment) | Ridge Regression | 2.123 | 2.825 | 0.9780 | 51.2% |
+| Plain VADER (no finance terms) | Ridge Regression | 2.123 | 2.826 | 0.9779 | 52.1% |
+| VADER + Finance Lexicon (ours) | Ridge Regression | 2.123 | 2.826 | 0.9779 | **53.2%** |
+| Price only (no sentiment) | Gradient Boosting | 2.116 | **2.809** | 0.9782 | 49.4% |
+| Plain VADER (no finance terms) | Gradient Boosting | 2.114 | 2.810 | 0.9782 | 51.4% |
+| VADER + Finance Lexicon (ours) | Gradient Boosting | 2.112 | 2.811 | 0.9782 | **52.8%** |
+
+*Finding:* Adding finance-specific tokens (`surge`, `rally`, `downgrade`, `plunge`, etc.) improves directional accuracy by an additional 1.1% to 1.4% over plain VADER.
 
 ![Model comparison](docs/figures/model_comparison.png)
 ![Actual vs predicted](docs/figures/actual_vs_predicted.png)

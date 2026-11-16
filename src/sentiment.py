@@ -80,14 +80,15 @@ POSITIVE_THRESHOLD = 0.05
 NEGATIVE_THRESHOLD = -0.05
 
 
-def _load_vader():
-    """Return a VADER analyser extended with FINANCE_LEXICON, or None if unavailable."""
+def _load_vader(include_finance_lexicon: bool = True):
+    """Return a VADER analyser, optionally extended with FINANCE_LEXICON, or None if unavailable."""
     try:
         from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
     except ImportError:
         return None
     analyser = SentimentIntensityAnalyzer()
-    analyser.lexicon.update(FINANCE_LEXICON)
+    if include_finance_lexicon:
+        analyser.lexicon.update(FINANCE_LEXICON)
     return analyser
 
 
@@ -98,15 +99,20 @@ class SentimentAnalyzer:
         headlines: DataFrame with ``date`` and ``headline`` columns.
         sentiment_scores: Per-headline scores after :meth:`analyze`.
         daily_sentiment: Per-date aggregates after :meth:`aggregate_by_date`.
-        engine: ``"vader+finance"`` or ``"lexicon"`` (fallback).
+        engine: ``"vader+finance"``, ``"vader_plain"``, or ``"lexicon"`` (fallback).
     """
 
-    def __init__(self, headlines: pd.DataFrame | None = None, use_vader: bool = True):
+    def __init__(self, headlines: pd.DataFrame | None = None, use_vader: bool = True,
+                 include_finance_lexicon: bool = True):
         self.headlines = headlines
+        self.include_finance_lexicon = include_finance_lexicon
         self.sentiment_scores: pd.DataFrame | None = None
         self.daily_sentiment: pd.DataFrame | None = None
-        self._vader = _load_vader() if use_vader else None
-        self.engine = "vader+finance" if self._vader else "lexicon"
+        self._vader = _load_vader(include_finance_lexicon=include_finance_lexicon) if use_vader else None
+        if self._vader:
+            self.engine = "vader+finance" if include_finance_lexicon else "vader_plain"
+        else:
+            self.engine = "lexicon"
 
     # ------------------------------------------------------------- text prep
     @staticmethod
@@ -147,12 +153,12 @@ class SentimentAnalyzer:
             return {"compound": 0.0, "pos": 0.0, "neg": 0.0, "neu": 1.0}
         if self._vader is not None:
             return self._vader.polarity_scores(text)
-        return self._lexicon_score(text)
+        return self._lexicon_score(text, include_finance=self.include_finance_lexicon)
 
     @staticmethod
-    def _lexicon_score(text: str) -> dict[str, float]:
+    def _lexicon_score(text: str, include_finance: bool = True) -> dict[str, float]:
         """Fallback scorer: sums word valences (flipping after a negation)."""
-        lexicon = {**_GENERIC_LEXICON, **FINANCE_LEXICON}
+        lexicon = {**_GENERIC_LEXICON, **(FINANCE_LEXICON if include_finance else {})}
         tokens = re.findall(r"[a-z][a-z'\-]*", text)
         valences = []
         for i, tok in enumerate(tokens):
@@ -240,3 +246,81 @@ class SentimentAnalyzer:
             "neutral": int(counts.get("neutral", 0)),
             "negative": int(counts.get("negative", 0)),
         }
+
+
+def run_sentiment_ablation(headlines: pd.DataFrame, clean_prices: pd.DataFrame,
+                           test_size: float = 0.2,
+                           models: list[str] | None = None) -> pd.DataFrame:
+    """Compare performance across Plain VADER vs VADER + Finance Lexicon vs Price-Only.
+
+    Demonstrates whether extending VADER with domain-specific financial terms
+    actually improves predictive performance.
+
+    Args:
+        headlines: DataFrame containing raw headlines.
+        clean_prices: Preprocessed OHLCV price DataFrame.
+        test_size: Chronological test fraction (default 0.2).
+        models: List of model names to test (default Ridge and Gradient Boosting).
+
+    Returns:
+        pd.DataFrame comparing the sentiment configurations by RMSE and Direction Accuracy.
+    """
+    from .features import FeatureBuilder
+    from .preprocessor import Preprocessor
+    from .predictor import RidgePredictor, GradientBoostingPredictor, NaivePredictor
+
+    target_models = {
+        "Ridge Regression": RidgePredictor,
+        "Gradient Boosting": GradientBoostingPredictor,
+    }
+    if models is not None:
+        target_models = {k: v for k, v in target_models.items() if k in models}
+
+    configs = [
+        ("Price only (no sentiment)", None),
+        ("Plain VADER (no finance words)", False),
+        ("VADER + Finance Lexicon (ours)", True),
+    ]
+
+    rows = []
+    for label, fin_lex in configs:
+        if fin_lex is None:
+            daily_sent = None
+            features_with_sentiment = False
+        else:
+            sa = SentimentAnalyzer(headlines.copy(), use_vader=True, include_finance_lexicon=fin_lex)
+            sa.analyze()
+            daily_sent = sa.aggregate_by_date()
+            features_with_sentiment = True
+
+        fb = FeatureBuilder(clean_prices, daily_sent)
+        feats = fb.build()
+        train_rows = fb.training_rows()
+        if daily_sent is not None:
+            first_news = train_rows.index[train_rows["news_count"] > 0].min()
+            train_rows = train_rows[train_rows.index >= first_news]
+
+        train_df, test_df = Preprocessor.chronological_split(train_rows, test_size)
+        cols = fb.feature_columns(features_with_sentiment)
+
+        from .evaluator import ModelEvaluator
+        from .features import TARGET_PRICE, TARGET_RETURN
+        actual = test_df[TARGET_PRICE].to_numpy(dtype=float)
+        prev_close = test_df["Close"].to_numpy(dtype=float)
+
+        for m_name, m_cls in target_models.items():
+            model = m_cls()
+            model.train(train_df[cols], train_df[TARGET_RETURN])
+            pred = model.predict_price(test_df[cols], test_df["Close"])
+            ev = ModelEvaluator(actual, pred)
+            s = ev.summary(previous=prev_close)
+            rows.append({
+                "Sentiment Configuration": label,
+                "Model": m_name,
+                "MAE ($)": round(s["MAE"], 4),
+                "RMSE ($)": round(s["RMSE"], 4),
+                "R2": round(s["R2"], 4),
+                "Direction Acc (%)": round(s["Direction_Acc"] * 100, 2),
+            })
+
+    return pd.DataFrame(rows)
