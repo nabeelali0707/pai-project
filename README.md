@@ -33,7 +33,7 @@ pip install -r requirements.txt
 python main.py                    # interactive menu
 python main.py --auto             # run every step once
 python main.py --auto --offline   # same, without any network access
-python -m pytest                  # 30 unit tests
+python -m pytest                  # 31 tests
 ```
 
 Options: `--symbol AAPL`, `--offline`, `--auto`, `--show` (open chart windows),

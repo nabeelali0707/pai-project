@@ -131,9 +131,19 @@ def test_sentiment_analyzer_without_finance_lexicon(headlines):
 
 
 def test_run_sentiment_ablation(prices, headlines):
-    sa = SentimentAnalyzer(headlines)
+    ablation_headlines = pd.concat(
+        [
+            headlines,
+            pd.DataFrame({
+                "date": [pd.Timestamp("2020-02-03")],
+                "headline": ["Apple shares gain after quarterly earnings"],
+            }),
+        ],
+        ignore_index=True,
+    )
+    sa = SentimentAnalyzer(ablation_headlines)
     sa.analyze()
-    ablation_df = run_sentiment_ablation(headlines, prices.iloc[:120], test_size=0.3,
+    ablation_df = run_sentiment_ablation(ablation_headlines, prices.iloc[:120], test_size=0.3,
                                          models=["Ridge Regression"])
     assert len(ablation_df) >= 3
     assert set(ablation_df["Sentiment Configuration"]) == {

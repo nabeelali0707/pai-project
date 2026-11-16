@@ -3,7 +3,7 @@
 Status as of 16 Nov 2026. The pipeline from the proposal runs end to end.
 `python main.py --auto --offline` loads the cached data, cleans it, scores
 sentiment, trains and compares the models, and draws the charts. The suite
-contains 30 tests; post-integration verification is still pending. What remains
+contains 31 tests; post-integration verification is still pending. What remains
 splits into two phases.
 
 - **Phase 1:** finish what the proposal promised and make sure every member can
