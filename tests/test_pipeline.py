@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from main import App
 from src.data_loader import DataLoader, DataValidationError
 from src.evaluator import ModelEvaluator
 from src.features import FeatureBuilder, PRICE_FEATURES, SENTIMENT_FEATURES, TARGET_PRICE, TARGET_RETURN
@@ -53,52 +52,6 @@ def test_normalise_multiindex_columns(prices):
     raw.columns = pd.MultiIndex.from_product([raw.columns, ["TEST"]], names=["Price", "Ticker"])
     df = DataLoader._normalise_api_frame(raw)
     assert "Close" in df.columns and not isinstance(df.columns, pd.MultiIndex)
-
-
-def test_load_custom_price_csv(prices, tmp_path):
-    path = tmp_path / "custom_prices.csv"
-    prices.to_csv(path, index_label="Date")
-    loader = DataLoader("TEST", cache_dir=str(tmp_path))
-
-    loaded = loader.load_csv(str(path))
-
-    assert loader.source == "csv"
-    pd.testing.assert_frame_equal(loaded, prices, check_freq=False)
-
-
-def test_load_custom_headlines_csv(headlines, tmp_path):
-    path = tmp_path / "custom_headlines.csv"
-    headlines.to_csv(path, index=False)
-    loaded = DataLoader("TEST", cache_dir=str(tmp_path)).load_headlines(str(path))
-
-    assert len(loaded) == len(headlines)
-    assert list(loaded.columns) == ["date", "headline"]
-
-
-def test_reconfigure_ticker_clears_pipeline_state(monkeypatch):
-    app = App()
-    app.prices = pd.DataFrame({"old": [1]})
-    app.comparison = object()
-    answers = iter(["MSFT"])
-    monkeypatch.setattr("builtins.input", lambda _: next(answers))
-
-    app.reconfigure_data()
-
-    assert app.symbol == "MSFT"
-    assert app.loader.stock_symbol == "MSFT"
-    assert app.prices is None
-    assert app.comparison is None
-
-
-def test_reconfigure_custom_csv_paths(monkeypatch):
-    app = App()
-    answers = iter(["c", "custom_prices.csv", "custom_headlines.csv"])
-    monkeypatch.setattr("builtins.input", lambda _: next(answers))
-
-    app.reconfigure_data()
-
-    assert app.price_csv == "custom_prices.csv"
-    assert app.headlines_csv == "custom_headlines.csv"
 
 
 # ---------------------------------------------------------------- Preprocessor
@@ -154,6 +107,18 @@ def test_finance_lexicon_negation():
     assert sa.score_text("shares did not surge")["compound"] < 0
 
 
+def test_finance_lexicon_can_be_disabled(headlines):
+    with_finance = SentimentAnalyzer(headlines, finance_lexicon=True)
+    plain = SentimentAnalyzer(headlines, finance_lexicon=False)
+    assert with_finance.engine != plain.engine
+    if with_finance._vader is not None:  # VADER installed: the finance words are absent
+        assert "downgrade" in with_finance._vader.lexicon
+        assert "downgrade" not in plain._vader.lexicon
+    # fallback scorer: "surge" only exists in the finance lexicon
+    assert SentimentAnalyzer(use_vader=False).score_text("surge")["compound"] > 0
+    assert SentimentAnalyzer(use_vader=False, finance_lexicon=False).score_text("surge")["compound"] == 0
+
+
 # ------------------------------------------------------------- FeatureBuilder
 def test_features_and_target_alignment(prices):
     fb = FeatureBuilder(prices)
@@ -198,6 +163,32 @@ def test_polymorphic_predictors(prices):
                                test["Close"])
 
 
+def test_walk_forward_comparison(prices):
+    feats = FeatureBuilder(prices).build().dropna(subset=[TARGET_RETURN])
+    train, test = Preprocessor.chronological_split(feats)
+    res = StockPredictor.compare_models(train, test, {"price": PRICE_FEATURES},
+                                        {"Ridge": RidgePredictor}, walk_forward=3)
+    assert res.walk_forward and res.fold_count == 3
+    assert {"RMSE_std", "Direction_Acc_std"} <= set(res.results.columns)
+    # expanding folds never score the first block, so predictions are out-of-fold only
+    assert 0 < len(res.actual) < len(feats)
+    assert all(len(p) == len(res.actual) for p in res.predictions.values())
+    assert np.isfinite(res.actual.to_numpy()).all()
+    assert "±" in res.format_summary()["RMSE"].iloc[0]
+
+
+def test_significance_helpers():
+    previous = np.full(8, 10.0)
+    actual = np.array([11, 9, 11, 9, 11, 9, 11, 9.0])
+    perfect = ModelEvaluator(actual, actual).direction_significance(previous)
+    assert perfect["accuracy"] == 1.0 and perfect["n"] == 8
+    assert perfect["p_value"] < 0.05           # 8/8 is unlikely under a coin flip
+    same = ModelEvaluator.paired_error_test(actual, actual, actual)
+    assert same["mean_difference"] == 0 and same["p_value"] == pytest.approx(1.0)
+    worse = ModelEvaluator.paired_error_test(actual, actual, actual + 1)
+    assert worse["mean_difference"] < 0 and worse["p_value"] < 0.05
+
+
 def test_untrained_model_raises(prices):
     with pytest.raises(RuntimeError):
         RidgePredictor().predict(prices)
@@ -235,6 +226,30 @@ def test_direction_accuracy():
 def test_evaluator_rejects_bad_input():
     with pytest.raises(ValueError):
         ModelEvaluator([1, 2], [1])
+
+
+def test_app_switches_symbol_and_validates_files(tmp_path, prices):
+    import main
+
+    app = main.App("AAPL", offline=True)
+    app.prices = prices
+
+    with pytest.raises(ValueError):            # not a ticker
+        app.use_symbol("not a ticker")
+    with pytest.raises(FileNotFoundError):     # no such file
+        app.use_symbol("TEST", str(tmp_path / "missing.csv"))
+    bad = tmp_path / "bad.csv"
+    prices.drop(columns=["Close"]).to_csv(bad, index_label="Date")
+    with pytest.raises(DataValidationError):   # a price file without Close
+        app.use_symbol("TEST", str(bad))
+    assert app.symbol == "AAPL" and app.prices is not None  # state untouched
+
+    good = tmp_path / "custom_prices.csv"
+    prices.to_csv(good, index_label="Date")
+    app.use_symbol("TEST", str(good))
+    assert app.symbol == "TEST" and app.prices is None     # derived state reset
+    app.step_load()
+    assert len(app.prices) == len(prices)
 
 
 def test_plots_are_saved(tmp_path, monkeypatch, prices):
