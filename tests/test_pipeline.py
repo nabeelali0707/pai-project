@@ -107,6 +107,18 @@ def test_finance_lexicon_negation():
     assert sa.score_text("shares did not surge")["compound"] < 0
 
 
+def test_finance_lexicon_can_be_disabled(headlines):
+    with_finance = SentimentAnalyzer(headlines, finance_lexicon=True)
+    plain = SentimentAnalyzer(headlines, finance_lexicon=False)
+    assert with_finance.engine != plain.engine
+    if with_finance._vader is not None:  # VADER installed: the finance words are absent
+        assert "downgrade" in with_finance._vader.lexicon
+        assert "downgrade" not in plain._vader.lexicon
+    # fallback scorer: "surge" only exists in the finance lexicon
+    assert SentimentAnalyzer(use_vader=False).score_text("surge")["compound"] > 0
+    assert SentimentAnalyzer(use_vader=False, finance_lexicon=False).score_text("surge")["compound"] == 0
+
+
 # ------------------------------------------------------------- FeatureBuilder
 def test_features_and_target_alignment(prices):
     fb = FeatureBuilder(prices)

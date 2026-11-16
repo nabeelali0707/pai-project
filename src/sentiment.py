@@ -80,14 +80,19 @@ POSITIVE_THRESHOLD = 0.05
 NEGATIVE_THRESHOLD = -0.05
 
 
-def _load_vader():
-    """Return a VADER analyser extended with FINANCE_LEXICON, or None if unavailable."""
+def _load_vader(finance_lexicon: bool = True):
+    """Return a VADER analyser, optionally extended with FINANCE_LEXICON.
+
+    ``finance_lexicon=False`` gives plain VADER, which is the baseline for the
+    sentiment ablation in ``scripts/sentiment_ablation.py``.
+    """
     try:
         from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
     except ImportError:
         return None
     analyser = SentimentIntensityAnalyzer()
-    analyser.lexicon.update(FINANCE_LEXICON)
+    if finance_lexicon:
+        analyser.lexicon.update(FINANCE_LEXICON)
     return analyser
 
 
@@ -101,12 +106,17 @@ class SentimentAnalyzer:
         engine: ``"vader+finance"`` or ``"lexicon"`` (fallback).
     """
 
-    def __init__(self, headlines: pd.DataFrame | None = None, use_vader: bool = True):
+    def __init__(self, headlines: pd.DataFrame | None = None, use_vader: bool = True,
+                 finance_lexicon: bool = True):
         self.headlines = headlines
         self.sentiment_scores: pd.DataFrame | None = None
         self.daily_sentiment: pd.DataFrame | None = None
-        self._vader = _load_vader() if use_vader else None
-        self.engine = "vader+finance" if self._vader else "lexicon"
+        self.finance_lexicon = finance_lexicon
+        self._vader = _load_vader(finance_lexicon) if use_vader else None
+        if self._vader is None:
+            self.engine = "lexicon"
+        else:
+            self.engine = "vader+finance" if finance_lexicon else "vader"
 
     # ------------------------------------------------------------- text prep
     @staticmethod
@@ -147,12 +157,12 @@ class SentimentAnalyzer:
             return {"compound": 0.0, "pos": 0.0, "neg": 0.0, "neu": 1.0}
         if self._vader is not None:
             return self._vader.polarity_scores(text)
-        return self._lexicon_score(text)
+        return self._lexicon_score(text, self.finance_lexicon)
 
     @staticmethod
-    def _lexicon_score(text: str) -> dict[str, float]:
+    def _lexicon_score(text: str, finance_lexicon: bool = True) -> dict[str, float]:
         """Fallback scorer: sums word valences (flipping after a negation)."""
-        lexicon = {**_GENERIC_LEXICON, **FINANCE_LEXICON}
+        lexicon = {**_GENERIC_LEXICON, **(FINANCE_LEXICON if finance_lexicon else {})}
         tokens = re.findall(r"[a-z][a-z'\-]*", text)
         valences = []
         for i, tok in enumerate(tokens):
